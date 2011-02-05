@@ -1,5 +1,5 @@
 
-from panda3d.core import PandaNode,NodePath
+from panda3d.core import PandaNode,NodePath,TextNode
 import random
 from sprite import Sprite2d
 
@@ -81,7 +81,7 @@ class NetNodePath(NodePath):
 CharacterPool = NetPool()
 class Character(NetEnt):
 	startPosition = None
-	def __init__(self, id=None):
+	def __init__(self, name='NONAME', id=None):
 		NetEnt.__init__(self, id)
 		self.node = NetNodePath(PandaNode("A Character"))
 		self.node.setPos(Character.startPosition)
@@ -91,14 +91,27 @@ class Character(NetEnt):
 		self.sprite = Sprite2d("origsprite.png", rows=3, cols=5, anchorX=Sprite2d.ALIGN_CENTER, rowPerFace=(0,1,2,1))
 		self.sprite.createAnim("walk",(1,0,2,0))
 		self.sprite.node.reparentTo(self.node)
+		
+		self.nameNode = NodePath(TextNode('Char Name'))
+		self.nameNode.node().setText(name)
+		self.nameNode.node().setAlign(TextNode.ACenter)
+		self.nameNode.node().setCardColor(0.2, 0.2, 0.2, 0.5)
+		self.nameNode.node().setCardAsMargin(0, 0, 0, 0)
+		self.nameNode.node().setCardDecal(True)
+		self.nameNode.reparentTo(self.node)
+		self.nameNode.setScale(0.2)
+		self.nameNode.setBillboardAxis()
+		self.nameNode.setZ(1.7)
 
 	def getState(self):
 		dataDict = NetObj.getState(self)
 		dataDict[0] = self.node.getState()
+		dataDict[1] = self.nameNode.node().getText()
 		return dataDict
 	def setState(self, dataDict):
 		x,y = self.node.getX(), self.node.getY()
 		self.node.setState(dataDict[0])
+		self.nameNode.node().setText(dataDict[1])
 		self.animate(self.node.getX()-x, self.node.getY()-y)
 	def animate(self, deltaX, deltaY):
 		if deltaX or deltaY:
@@ -109,7 +122,7 @@ NetEnt.registerSubclass(Character)
 
 UserPool = NetPool()
 class User(NetEnt):
-	def __init__(self, id=None, address=None, remoteAck=None, localAck=None):
+	def __init__(self, id=None, address=None, remoteAck=None, localAck=None, name='NONAME'):
 		NetEnt.__init__(self, id)
 		self.points = 0
 		if address:
@@ -118,8 +131,8 @@ class User(NetEnt):
 			self.localAck = localAck   # most recent message from them I've acked
 		self.last = None
 		if not id:
-			#don't create sub-item, will be passed from server.
-			self.char = Character()
+			# as client never create member NetEnt, it will be passed from server.
+			self.char = Character(name)
 		UserPool.add(self)
 	def getState(self):
 		dataDict = NetObj.getState(self)

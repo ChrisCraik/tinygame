@@ -112,7 +112,7 @@ class World(DirectObject):
 			print 'INITIALIZING SERVER'
 		else:
 			mode = network.MODE_CLIENT
-		self.connection = network.Connection(mode, ip=args.client, port=args.port)
+		self.connection = network.Connection(mode, args)
 		self.sendDeltaT = 0
 
 		#setup local client

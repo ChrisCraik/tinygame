@@ -5,6 +5,7 @@ group.add_argument('--server', action='store_true', default=False)
 group.add_argument('--client', metavar='SERVER_ADDR')
 parse.add_argument('--port', type=int, default=5353)
 parse.add_argument('--password')
+parse.add_argument('--name', default='Player')
 results = parse.parse_args()
 
 

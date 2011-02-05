@@ -42,7 +42,7 @@ def sequenceMoreRecent(s1, s2):
 		return s2 - s1 > (SEQUENCE_MAX/2)
 
 class Connection(asyncore.dispatcher):
-	def __init__(self, mode, ip, port):
+	def __init__(self, mode, args):
 		asyncore.dispatcher.__init__(self)
 
 		self.readQueue = collections.deque()
@@ -55,15 +55,16 @@ class Connection(asyncore.dispatcher):
 		self.create_socket(socket.AF_INET, socket.SOCK_DGRAM)
 		self.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 		if mode == MODE_SERVER:
-			self.bind(('',port))
-			self.serverUser = User()
+			self.bind(('',args.port))
+			print args.name
+			self.serverUser = User(name=args.name)
 			self.localUser = self.serverUser
 		else:
 			self.bind(('',0))
-			self.serverUser = User(address=(ip,port))
+			self.serverUser = User(address=(args.client,args.port))
 			self.localUser = None
-			self.addrToClient[(ip,port)] = self.serverUser
-			self.login()
+			self.addrToClient[(args.client,args.port)] = self.serverUser
+			self.login(args.name)
 			
 			## THIS IS A CHEAT - can this be done elsewhere? ##
 			sender, sequenceNr, opCode, messageData = self.readQueue.popleft()
@@ -80,13 +81,13 @@ class Connection(asyncore.dispatcher):
 			return
 		self.writeQueue.append((destinationUser, self.sequenceNr, opCode, messageData))
 
-	def login(self):
+	def login(self, name):
 		assert self.mode == MODE_CLIENT and len(self.addrToClient) == 1
 		print 'begin login attempt'
 
 		for i in range(10):
 			print 'trying to log in...'
-			self.enqueue(self.serverUser, CL_CONNECT_REQ, ('connecting time!'))
+			self.enqueue(self.serverUser, CL_CONNECT_REQ, name)
 			time.sleep(1)
 			asyncore.loop(count=10,timeout=1)
 			if self.serverUser.remoteAck != None: #the server's ack'd one of the client's messages
@@ -108,16 +109,17 @@ class Connection(asyncore.dispatcher):
 			#first message from server tells client which user it is
 			assert self.mode == MODE_CLIENT
 			self.localUser = User(id=localid)
-			
-		
+
 		assert self.localUser.id == localid
 		
 		if address not in self.addrToClient:
-			print 'seeing new client!', address
+			name = messageData
+			print 'seeing new client from', address, 'named',name
 			assert self.mode == MODE_SERVER
 			client = User(address=address,
 				remoteAck=None,      # most recent of mine they've seen
-				localAck=sequenceNr) # most recent of theirs I've seen
+				localAck=sequenceNr,
+				name=name) # most recent of theirs I've seen
 			self.addrToClient[address] = client
 		else:
 			client = self.addrToClient[address]
