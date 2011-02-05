@@ -46,6 +46,11 @@ class NetEnt(NetObj):
 		for id, entState in stateDict.iteritems():
 			if isinstance(entState, dict):
 				NetEnt.entities[id].setState(entState)
+				
+		for id in NetEnt.entities.keys():
+			if id not in stateDict:
+				print 'deleting entity', id
+				del NetEnt.entities[id]
 
 class NetPool(NetEnt):
 	def __init__(self, id=None):
@@ -103,6 +108,10 @@ class Character(NetEnt):
 		self.nameNode.setBillboardAxis()
 		self.nameNode.setZ(1.7)
 
+	def __del__(self):
+		print 'CHARACTER BEING REMOVED'
+		self.node.removeNode()
+
 	def getState(self):
 		dataDict = NetObj.getState(self)
 		dataDict[0] = self.node.getState()
@@ -134,6 +143,10 @@ class User(NetEnt):
 			# as client never create member NetEnt, it will be passed from server.
 			self.char = Character(name)
 		UserPool.add(self)
+		
+	def __del__(self):
+		print 'USER BEING REMOVED'
+		
 	def getState(self):
 		dataDict = NetObj.getState(self)
 		try:

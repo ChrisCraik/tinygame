@@ -4,9 +4,11 @@ import collections
 import logging
 import socket
 import random
+import sys
 from entity import *
 
 # also: json, marshal pickle
+import json
 import rencode
 serializer = rencode
 
@@ -42,8 +44,9 @@ def sequenceMoreRecent(s1, s2):
 		return s2 - s1 > (SEQUENCE_MAX/2)
 
 class Connection(asyncore.dispatcher):
-	def __init__(self, mode, args):
+	def __init__(self, mode, args, log):
 		asyncore.dispatcher.__init__(self)
+		self.log = log
 
 		self.readQueue = collections.deque()
 		self.writeQueue = collections.deque()
@@ -102,9 +105,12 @@ class Connection(asyncore.dispatcher):
 	# everything below should be threadsafe
 	def handle_read(self):
 		packet, address = self.recvfrom(MAX_PACKET_LENGTH)
-		#print 'received', packet, address
-		localid, sequenceNr, opCode, ackRecent, messageData = serializer.loads(packet)
 		
+		#print 'received', packet, address
+		message = serializer.loads(packet)
+		self.log.write('RECEIVED:'+json.dumps(message)+'\n')
+		
+		localid, sequenceNr, opCode, ackRecent, messageData = message
 		if self.localUser == None:
 			#first message from server tells client which user it is
 			assert self.mode == MODE_CLIENT
@@ -128,26 +134,32 @@ class Connection(asyncore.dispatcher):
 				client.localAck = sequenceNr
 			if sequenceMoreRecent(ackRecent, client.remoteAck):
 				client.remoteAck = ackRecent
-		client.last = time.time()
+		client.last = time.clock()
 		if opCode != CL_CONNECT_REQ:
 			self.readQueue.append((client, sequenceNr, opCode, messageData))
 
-	#def handle_error(self):
-	#	print 'ignoring error (because windows delivers reception errors in UDP)'
+	def handle_error(self):
+		self.log.write('##'+str(sys.exc_info())+'/n')
 
 	def handle_write(self):
 		if not self.writeQueue:
 			return
 		client, sequenceNr, opCode, messageData = self.writeQueue.popleft()
 		
-		#print 'sending message to ', client
 		if client.last:
-			lastHeard = time.time() - client.last
-			#print 'last heard from', client, lastHeard, 'seconds ago.'
+			lastHeard = time.clock() - client.last
+			#print 'last heard from', client.id, lastHeard, 'seconds ago.'
 			if lastHeard > TIMEOUT:
-				print 'connection',client,'timed out!'
-				#del self.connectionLast[connectionID] Can remember clients!
-				del self.addrToClient[client.address]
+				print 'connection',client.id,'timed out!'
+				
+				CharacterPool.remove(client.char)
+				del NetEnt.entities[client.char.id]
+				del client.char
+				
+				UserPool.remove(client)
+				del NetEnt.entities[client.id]
+				del self.addrToClient[client.address] #do we want to do this? Could remember clients!
+				del client
 				return
 
 		message = (client.id, sequenceNr, opCode, client.localAck, messageData)
@@ -155,6 +167,7 @@ class Connection(asyncore.dispatcher):
 		packet = serializer.dumps(message)
 		if len(packet) > MAX_PACKET_LENGTH:
 			raise ValueError('Message too long')
+		self.log.write('SENT:'+json.dumps(message)+'\n')
 		#print 'sending', message, 'to', client.address, '(size is',len(packet),')'
 
 		self.sendto(packet, client.address)

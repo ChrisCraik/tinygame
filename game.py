@@ -94,8 +94,9 @@ class Controller(DirectObject):
 
 speed = 5
 class World(DirectObject):
-	def __init__(self, args):
+	def __init__(self, args, log):
 		self.args = args
+		self.log = log
 		
 		#set up world
 		base.win.setClearColor(Vec4(0,0,0,1))
@@ -112,7 +113,7 @@ class World(DirectObject):
 			print 'INITIALIZING SERVER'
 		else:
 			mode = network.MODE_CLIENT
-		self.connection = network.Connection(mode, args)
+		self.connection = network.Connection(mode, args=self.args, log=self.log)
 		self.sendDeltaT = 0
 
 		#setup local client
