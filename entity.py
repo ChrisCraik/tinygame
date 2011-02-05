@@ -92,21 +92,23 @@ class Character(NetEnt):
 		self.node.setPos(Character.startPosition)
 		self.node.reparentTo(render)
 		CharacterPool.add(self)
+		self.vertVelocity = None
 		
 		self.sprite = Sprite2d("origsprite.png", rows=3, cols=5, anchorX=Sprite2d.ALIGN_CENTER, rowPerFace=(0,1,2,1))
 		self.sprite.createAnim("walk",(1,0,2,0))
 		self.sprite.node.reparentTo(self.node)
 		
+		# set up character's name label
 		self.nameNode = NodePath(TextNode('Char Name'))
 		self.nameNode.node().setText(name)
 		self.nameNode.node().setAlign(TextNode.ACenter)
 		self.nameNode.node().setCardColor(0.2, 0.2, 0.2, 0.5)
 		self.nameNode.node().setCardAsMargin(0, 0, 0, 0)
 		self.nameNode.node().setCardDecal(True)
-		self.nameNode.reparentTo(self.node)
+		self.nameNode.setZ(1.7)
 		self.nameNode.setScale(0.2)
 		self.nameNode.setBillboardAxis()
-		self.nameNode.setZ(1.7)
+		self.nameNode.reparentTo(self.node)
 
 	def __del__(self):
 		print 'CHARACTER BEING REMOVED'
@@ -121,9 +123,11 @@ class Character(NetEnt):
 		x,y = self.node.getX(), self.node.getY()
 		self.node.setState(dataDict[0])
 		self.nameNode.node().setText(dataDict[1])
-		self.animate(self.node.getX()-x, self.node.getY()-y)
+		self.animate(self.node.getX()-x, self.node.getY()-y, )
 	def animate(self, deltaX, deltaY):
-		if deltaX or deltaY:
+		if self.node.getZ() > 0:
+			self.sprite.setFrame(3)
+		elif deltaX or deltaY:
 			self.sprite.playAnim("walk", loop=True)
 		else:
 			self.sprite.setFrame(0)

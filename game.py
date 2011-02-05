@@ -123,12 +123,26 @@ class World(DirectObject):
 	def applyControl(self, character, controlData):
 		h, p, deltaX, deltaY, jump, duck, deltaT = controlData
 		if character != self.connection.localUser.char:
-			#character.node.setHpr(h,p,0)
-			character.node.setH(h)
+			character.node.setH(h) # also setP(p) if you want char to pitch up and down
 
-		character.animate(deltaX,deltaY)
+		# handle movement
 		character.node.setX(character.node, deltaX * speed * deltaT)
 		character.node.setY(character.node, deltaY * speed * deltaT)
+		
+		# handle jumping input
+		if jump and character.vertVelocity == None:
+			character.vertVelocity = 10
+		if character.vertVelocity:
+			jumpZ = character.node.getZ() + character.vertVelocity * deltaT
+			if jumpZ >= 0:
+				character.node.setZ(jumpZ)
+				character.vertVelocity -= 40 * deltaT
+			else:
+				character.node.setZ(0)
+				character.vertVelocity = None
+
+		# animate the sprite
+		character.animate(deltaX,deltaY)			
 
 	def stepServer(self):
 		assert self.connection.mode == network.MODE_SERVER
