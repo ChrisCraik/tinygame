@@ -111,7 +111,7 @@ class AIController(DirectObject):
 		h = Vec2(0,1).signedAngleDeg(Vec2(target.getXy() - charPos.getXy()))
 		jump = target.getZ() > charPos.getZ()
 		#print 'zombie looking in direction:', h, 'at', target, charPos
-		return [h,0,0,1,jump,0,0]
+		return [h,0,0,1 if len > 1 else 0,jump,0,0]
 
 class World(DirectObject):
 	def __init__(self, args, log):
