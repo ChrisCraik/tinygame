@@ -57,7 +57,7 @@ class Sprite2d:
 				  rows=1, cols=1, scale=1.0,\
 				  twoSided=False, alpha=TRANS_ALPHA,\
 				  repeatX=1, repeatY=1,\
-				  anchorX=ALIGN_LEFT, anchorY=ALIGN_BOTTOM):
+				  anchorX=ALIGN_CENTER, anchorY=ALIGN_BOTTOM):
 		"""
 		Create a card textured with an image. The card is sized so that the ratio between the
 		card and image is the same.

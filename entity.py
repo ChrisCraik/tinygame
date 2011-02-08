@@ -1,6 +1,6 @@
 
 from panda3d.core import PandaNode,NodePath,TextNode,Vec3
-from panda3d.core import CollisionNode, CollisionRay, CollisionHandlerQueue
+from panda3d.core import CollisionNode, CollisionRay, CollisionHandlerQueue, BitMask32
 import random
 from sprite import Sprite2d
 
@@ -14,11 +14,10 @@ class NetEnt(NetObj):
 	types = {}
 	def __init__(self, id=None):
 		if not id:
-			print 'CREATING (id not asserted)'
+			#print 'CREATING (id not asserted)'
 			id = NetEnt.currentID
 			NetEnt.currentID += 1
 		self.id = id
-		
 		print 'CREATING: Entities[',self.id,'] = ',self,'type=',self.__class__
 		
 		assert self.id not in NetEnt.entities
@@ -51,6 +50,12 @@ class NetEnt(NetObj):
 		for id in NetEnt.entities.keys():
 			if id not in stateDict:
 				print 'deleting entity', id
+				if id in ProjectilePool.pool:
+					ProjectilePool.remove(NetEnt.entities[id])
+				if id in CharacterPool.pool:
+					CharacterPool.remove(NetEnt.entities[id])
+				if id in UserPool.pool:
+					UserPool.remove(NetEnt.entities[id])
 				del NetEnt.entities[id]
 
 class NetPool(NetEnt):
@@ -84,20 +89,51 @@ class NetNodePath(NodePath):
 		if not self.rotationallyImmune:
 			self.setH(h)
 
+ProjectilePool = NetPool()
+class Projectile(NetEnt):
+	def __init__(self, parentNode=None, id=None):
+		NetEnt.__init__(self, id)
+		self.node = NetNodePath(PandaNode('projectile'))
+		if parentNode:
+			self.node.setPos(parentNode.getPos() + (0,0,1))
+			self.node.setHpr(parentNode.getHpr())
+		self.node.reparentTo(render)
+		ProjectilePool.add(self)
+		#print 'there are',len(ProjectilePool.values()),'projectiles'
+		self.flyTime = 0
+		
+		self.sprite = Sprite2d('missile.png', rows=3, cols=1, rowPerFace=(0,1,2,1))
+		self.sprite.node.reparentTo(self.node)
+	def getState(self):
+		dataDict = NetObj.getState(self)
+		dataDict[0] = self.node.getState()
+		return dataDict
+	def setState(self, dataDict):
+		self.node.setState(dataDict[0])
+	def move(self, deltaT):
+		self.node.setY(self.node, 20*deltaT)
+		self.flyTime += deltaT
+		return self.flyTime < 4
+	def __del__(self):
+		#print 'PROJECTILE BEING REMOVED'
+		self.node.removeNode()
+NetEnt.registerSubclass(Projectile)
+
+
 CharacterPool = NetPool()
 class Character(NetEnt):
 	startPosition = None
 	collisionTraverser = None
 	def __init__(self, name='NONAME', id=None):
 		NetEnt.__init__(self, id)
-		self.node = NetNodePath(PandaNode("A Character"))
+		self.node = NetNodePath(PandaNode('A Character'))
 		if not id:
 			self.spawn()
 		self.node.reparentTo(render)
 		CharacterPool.add(self)
 		self.vertVelocity = None
 		
-		self.sprite = Sprite2d("origsprite.png", rows=3, cols=5, anchorX=Sprite2d.ALIGN_CENTER, rowPerFace=(0,1,2,1))
+		self.sprite = Sprite2d("origsprite.png", rows=3, cols=5, rowPerFace=(0,1,2,1))
 		self.sprite.createAnim("walk",(1,0,2,0))
 		self.sprite.node.reparentTo(self.node)
 		
@@ -116,12 +152,15 @@ class Character(NetEnt):
 		# set up collision
 		self.fromCollider = self.node.attachNewNode(CollisionNode('colNode'))
 		self.fromCollider.node().addSolid(CollisionRay(0,0,2,0,0,-1))
+		self.fromCollider.node().setIntoCollideMask(BitMask32.allOff())
 		#self.fromCollider.node().setFromCollideMask(BitMask32.bit(0))
-		#self.fromCollider.node().setIntoCollideMask(BitMask32.allOff())
 		self.collisionHandler = CollisionHandlerQueue()
 		Character.collisionTraverser.addCollider(self.fromCollider,self.collisionHandler)
 		self.oldPosition = self.node.getPos()
 		#self.fromCollider.show()
+		
+		# set up weapons
+		self.sinceShoot = 0
 		
 	def spawn(self):
 		#spawn randomly near startPosition, or another character
@@ -150,6 +189,59 @@ class Character(NetEnt):
 			self.sprite.playAnim("walk", loop=True)
 		else:
 			self.sprite.setFrame(0)
+
+	def applyControl(self, controlData, isLocal):
+		h, p, deltaX, deltaY, jump, duck, shoot, deltaT = controlData
+		if not isLocal:
+			self.node.setH(h) # also setP(p) if you want char to pitch up and down
+
+		self.oldPosition = self.node.getPos()
+		self.deltaT = deltaT
+
+		speed = 10 if self.nameNode.node().getText()[:3]!='Zom' else 5
+		# handle movement
+		self.node.setX(self.node, deltaX * speed * deltaT)
+		self.node.setY(self.node, deltaY * speed * deltaT)
+		
+		#handle jumping input
+		if jump and self.vertVelocity == None:
+			self.vertVelocity = 10
+		
+		#handle SHOOT
+		self.sinceShoot += deltaT
+		if shoot and self.sinceShoot > 0.5:
+			self.sinceShoot = 0
+			p = Projectile(self.node)
+
+	def postCollide(self):
+		ch = self.collisionHandler
+		entries = [ch.getEntry(i) for i in range(ch.getNumEntries())]
+		entries.sort(lambda x,y: cmp(y.getSurfacePoint(render).getZ(),
+		                             x.getSurfacePoint(render).getZ()))
+		if len(entries) > 0:
+			zDelta = entries[0].getSurfacePoint(render).getZ() - self.oldPosition.getZ()
+			yDelta = (self.node.getPos() - self.oldPosition).length()
+			
+			if zDelta > yDelta + 0.0001:
+				#don't consider movement if the z movement is smaller than delta (plus margin for error)
+				self.node.setPos(self.oldPosition)
+			else:
+				collisionZ = entries[0].getSurfacePoint(render).getZ()
+				
+				if self.vertVelocity:
+					jumpZ = self.node.getZ() + self.vertVelocity * self.deltaT
+					if jumpZ > collisionZ:
+						self.vertVelocity -= 40 * self.deltaT
+						collisionZ = jumpZ
+					else:
+						self.vertVelocity = None
+					collisionZ = max(jumpZ, collisionZ)
+				self.node.setZ(collisionZ)
+		else:
+			self.node.setPos(self.oldPosition)
+
+		# animate the sprite
+		self.animate(self.node.getPos(),self.oldPosition)
 NetEnt.registerSubclass(Character)
 
 UserPool = NetPool()

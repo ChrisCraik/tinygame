@@ -30,7 +30,7 @@ class Controller(DirectObject):
 
 		parentChar.node.rotationallyImmune = True
 
-		self.floater = NodePath("floater")
+		self.floater = NodePath('floater')
 		self.floater.reparentTo(parentChar.node)
 		self.floater.setPos(1,0,2)
 
@@ -44,26 +44,29 @@ class Controller(DirectObject):
 		props.setCursorHidden(True)
 		base.win.requestProperties(props)
 
-		taskMgr.add(self.controlCamera, "camera-task")
+		taskMgr.add(self.controlCamera, 'camera-task')
 		self.h = parentChar.node.getH()
 		self.p = parentChar.node.getP()
 
-		self.keyMap = {"left":0, "right":0, "forward":0, "backward":0, "jump":0, "duck":0}
-		self.accept("escape",		 sys.exit)
-		self.accept("arrow_left",	 self.setKey, ["left",1])
-		self.accept("arrow_right",	self.setKey, ["right",1])
-		self.accept("arrow_up",	   self.setKey, ["forward",1])
-		self.accept("arrow_down",	 self.setKey, ["backward",1])
-		self.accept("arrow_left-up",  self.setKey, ["left",0])
-		self.accept("arrow_right-up", self.setKey, ["right",0])
-		self.accept("arrow_up-up",	self.setKey, ["forward",0])
-		self.accept("arrow_down-up",  self.setKey, ["backward",0])
+		self.keyMap = {'left':0, 'right':0, 'forward':0, 'backward':0, 'jump':0, 'duck':0, 'shoot':0}
+		self.accept('escape',         sys.exit)
+		self.accept('arrow_left',     self.setKey, ['left',1])
+		self.accept('arrow_right',    self.setKey, ['right',1])
+		self.accept('arrow_up',       self.setKey, ['forward',1])
+		self.accept('arrow_down',     self.setKey, ['backward',1])
+		self.accept('arrow_left-up',  self.setKey, ['left',0])
+		self.accept('arrow_right-up', self.setKey, ['right',0])
+		self.accept('arrow_up-up',    self.setKey, ['forward',0])
+		self.accept('arrow_down-up',  self.setKey, ['backward',0])
 
-		self.accept("space",		  self.setKey, ["jump",1])
-		self.accept("space-up",	   self.setKey, ["jump",0])
+		self.accept('space',          self.setKey, ['jump',1])
+		self.accept('space-up',       self.setKey, ['jump',0])
 
-		self.accept("lshift",		 self.setKey, ["duck",1])
-		self.accept("lshift-up",	  self.setKey, ["duck",0])
+		self.accept('lshift',         self.setKey, ['duck',1])
+		self.accept('lshift-up',      self.setKey, ['duck',0])
+		
+		self.accept('mouse1',         self.setKey, ['shoot',1])
+		self.accept('mouse1-up',      self.setKey, ['shoot',0])
 	def setKey(self, key, value):
 		self.keyMap[key] = value
 
@@ -88,10 +91,10 @@ class Controller(DirectObject):
 
 	def getControl(self):
 		move = Vec2(
-			self.keyMap["right"]-self.keyMap["left"],
-			self.keyMap["forward"]-self.keyMap["backward"])
+			self.keyMap['right']-self.keyMap['left'],
+			self.keyMap['forward']-self.keyMap['backward'])
 		move.normalize()
-		return [self.h, self.p, move.getX(), move.getY(), self.keyMap["jump"], self.keyMap["duck"]]
+		return [self.h, self.p, move.getX(), move.getY(), self.keyMap['jump'], self.keyMap['duck'], self.keyMap['shoot']]
 
 class AIController(DirectObject):
 	def __init__(self, parentChar):
@@ -108,7 +111,7 @@ class AIController(DirectObject):
 		h = Vec2(0,1).signedAngleDeg(Vec2(target.getXy() - charPos.getXy()))
 		jump = target.getZ() > charPos.getZ()
 		#print 'zombie looking in direction:', h, 'at', target, charPos
-		return [h,0,0,1,jump,0]
+		return [h,0,0,1,jump,0,0]
 
 class World(DirectObject):
 	def __init__(self, args, log):
@@ -117,78 +120,31 @@ class World(DirectObject):
 		
 		#set up world
 		base.win.setClearColor(Vec4(0,0,0,1))
-		self.environ = loader.loadModel("models/world")
+		self.environ = loader.loadModel('models/world')
 		self.environ.reparentTo(render)
 		self.environ.setPos(0,0,0)
-		Character.startPosition = self.environ.find("**/start_point").getPos()
+		Character.startPosition = self.environ.find('**/start_point').getPos()
 		
 		#set up collisions
 		Character.collisionTraverser = CollisionTraverser()
 		#Character.collisionTraverser.showCollisions(render)
 		
 		#set up networking
-		if args.server:
-			mode = network.MODE_SERVER
-			self.ai = []
-			for i in range(3):
-				c = Character(name='Zombie')
-				self.ai.append(AIController(c))
-			print 'INITIALIZING SERVER WITH', len(self.ai), 'ZOMBIES'
-		else:
-			mode = network.MODE_CLIENT
+		mode = network.MODE_SERVER if args.server else network.MODE_CLIENT
 		self.connection = network.Connection(mode, args=self.args, log=self.log)
 		self.sendDeltaT = 0
 
 		#set up local client
 		self.control = Controller(self.connection.localUser.char)
-		taskMgr.add(self.step, "world-step")
+		taskMgr.add(self.step, 'world-step')
 
-	def applyControl(self, character, controlData):
-		h, p, deltaX, deltaY, jump, duck, deltaT = controlData
-		if character != self.connection.localUser.char:
-			character.node.setH(h) # also setP(p) if you want char to pitch up and down
-
-		character.oldPosition = character.node.getPos()
-		character.deltaT = deltaT
-
-		speed = 10 if character.nameNode.node().getText()[:3]!='Zom' else 5
-		# handle movement
-		character.node.setX(character.node, deltaX * speed * deltaT)
-		character.node.setY(character.node, deltaY * speed * deltaT)
-		
-		#handle jumping input
-		if jump and character.vertVelocity == None:
-			character.vertVelocity = 10
-
-	def postCollide(self, character):
-		ch = character.collisionHandler
-		entries = [ch.getEntry(i) for i in range(ch.getNumEntries())]
-		entries.sort(lambda x,y: cmp(y.getSurfacePoint(render).getZ(),
-		                             x.getSurfacePoint(render).getZ()))
-		if len(entries) > 0:
-			zDelta = entries[0].getSurfacePoint(render).getZ() - character.oldPosition.getZ()
-			yDelta = (character.node.getPos() - character.oldPosition).length()
-			
-			if zDelta > yDelta + 0.0001:
-				#don't consider movement if the z movement is smaller than delta (plus margin for error)
-				character.node.setPos(character.oldPosition)
-			else:
-				collisionZ = entries[0].getSurfacePoint(render).getZ()
-				
-				if character.vertVelocity:
-					jumpZ = character.node.getZ() + character.vertVelocity * character.deltaT
-					if jumpZ > collisionZ:
-						character.vertVelocity -= 40 * character.deltaT
-						collisionZ = jumpZ
-					else:
-						character.vertVelocity = None
-					collisionZ = max(jumpZ, collisionZ)
-				character.node.setZ(collisionZ)
-		else:
-			character.node.setPos(character.oldPosition)
-
-		# animate the sprite
-		character.animate(character.node.getPos(),character.oldPosition)
+		#set up characters
+		if self.connection.mode == network.MODE_SERVER:
+			self.ai = []
+			for i in range(3):
+				c = Character(name='Zombie')
+				self.ai.append(AIController(c))
+			print 'INITIALIZING SERVER WITH', len(self.ai), 'ZOMBIES'
 
 	def stepServer(self):
 		assert self.connection.mode == network.MODE_SERVER
@@ -201,23 +157,30 @@ class World(DirectObject):
 			sender, lastAck, opcode, control = self.connection.readQueue.popleft()
 			#print sender, lastAck, opcode, control
 			assert opcode == network.CL_UPDATE
-			self.applyControl(sender.char, control)
+			sender.char.applyControl(control, isLocal=(sender.char==self.connection.localUser.char))
 
 		Character.collisionTraverser.traverse(render)
-		# Simulate server-controlled objects using simulation time from last full pass
-		#print 'simulating'
 		
+		# Simulate server-controlled objects using simulation time from last full pass
 		for c in CharacterPool.values():
-			self.postCollide(c)
+			c.postCollide()
+		for p in ProjectilePool.values():
+			if not p.move(globalClock.getDt()):
+				ProjectilePool.remove(p)
+				del NetEnt.entities[p.id]
+				del p
 
 		# For each connected client, package up visible objects/world state and send to client
 		self.sendDeltaT += globalClock.getDt()
+		entstate = NetEnt.getState()
+		for id in ProjectilePool.pool:
+			assert id in NetEnt.entities
 		if self.sendDeltaT > UPDATE_TIME:
 			for user in UserPool.values():
 				if user == self.connection.localUser:
 					continue
 				#print 'client most recent acked message was', user.localAck
-				self.connection.enqueue(user, network.SV_UPDATE, (user.localAck, NetEnt.getState()))
+				self.connection.enqueue(user, network.SV_UPDATE, (user.localAck, entstate))
 			self.connection.incSequence()
 			self.sendDeltaT = 0
 		network.sendReceive()
@@ -243,9 +206,7 @@ class World(DirectObject):
 			assert opCode == network.SV_UPDATE
 			assert sender == self.connection.serverUser
 			lastAck, serverState = messageData
-			#print serverState
 			NetEnt.setState(serverState)
-		#print NetEnt.getState()
 
 	def step(self, task):
 		if self.connection.mode == network.MODE_SERVER:
@@ -254,9 +215,9 @@ class World(DirectObject):
 			self.stepClient()
 
 		# orient the sprites correctly
-		for char in CharacterPool.values():
-			if char.sprite:
-				char.sprite.updateCameraAngle(base.camera)
+		for item in CharacterPool.values()+ProjectilePool.values():
+			if item.sprite:
+				item.sprite.updateCameraAngle(base.camera)
 		#print
 
 		return task.cont
