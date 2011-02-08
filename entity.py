@@ -1,5 +1,6 @@
 
-from panda3d.core import PandaNode,NodePath,TextNode
+from panda3d.core import PandaNode,NodePath,TextNode,Vec3
+from panda3d.core import CollisionNode, CollisionRay, CollisionHandlerQueue
 import random
 from sprite import Sprite2d
 
@@ -86,10 +87,12 @@ class NetNodePath(NodePath):
 CharacterPool = NetPool()
 class Character(NetEnt):
 	startPosition = None
+	collisionTraverser = None
 	def __init__(self, name='NONAME', id=None):
 		NetEnt.__init__(self, id)
 		self.node = NetNodePath(PandaNode("A Character"))
-		self.node.setPos(Character.startPosition)
+		if not id:
+			self.spawn()
 		self.node.reparentTo(render)
 		CharacterPool.add(self)
 		self.vertVelocity = None
@@ -110,6 +113,21 @@ class Character(NetEnt):
 		self.nameNode.setBillboardAxis()
 		self.nameNode.reparentTo(self.node)
 
+		# set up collision
+		self.fromCollider = self.node.attachNewNode(CollisionNode('colNode'))
+		self.fromCollider.node().addSolid(CollisionRay(0,0,2,0,0,-1))
+		#self.fromCollider.node().setFromCollideMask(BitMask32.bit(0))
+		#self.fromCollider.node().setIntoCollideMask(BitMask32.allOff())
+		self.collisionHandler = CollisionHandlerQueue()
+		Character.collisionTraverser.addCollider(self.fromCollider,self.collisionHandler)
+		self.oldPosition = self.node.getPos()
+		#self.fromCollider.show()
+		
+	def spawn(self):
+		#spawn randomly near startPosition, or another character
+		startPos = random.choice([c.node.getPos() for c in CharacterPool.values()] + [Character.startPosition])
+		self.node.setPos(startPos + Vec3(random.uniform(-3,3),random.uniform(-3,3),3))
+		
 	def __del__(self):
 		print 'CHARACTER BEING REMOVED'
 		self.node.removeNode()
@@ -118,16 +136,17 @@ class Character(NetEnt):
 		dataDict = NetObj.getState(self)
 		dataDict[0] = self.node.getState()
 		dataDict[1] = self.nameNode.node().getText()
+		dataDict[2] = self.vertVelocity != None
 		return dataDict
 	def setState(self, dataDict):
-		x,y = self.node.getX(), self.node.getY()
+		oldPos = self.node.getPos()
 		self.node.setState(dataDict[0])
 		self.nameNode.node().setText(dataDict[1])
-		self.animate(self.node.getX()-x, self.node.getY()-y, )
-	def animate(self, deltaX, deltaY):
-		if self.node.getZ() > 0:
+		self.animate(oldPos, self.node.getPos())
+	def animate(self, oldPos, newPos):
+		if self.vertVelocity:
 			self.sprite.setFrame(3)
-		elif deltaX or deltaY:
+		elif (newPos - oldPos).length() > 0.001:
 			self.sprite.playAnim("walk", loop=True)
 		else:
 			self.sprite.setFrame(0)

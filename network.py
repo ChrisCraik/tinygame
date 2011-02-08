@@ -139,7 +139,7 @@ class Connection(asyncore.dispatcher):
 			self.readQueue.append((client, sequenceNr, opCode, messageData))
 
 	def handle_error(self):
-		self.log.write('##'+str(sys.exc_info())+'/n')
+		self.log.write('#ERROR:'+str(sys.exc_info())+'/n')
 
 	def handle_write(self):
 		if not self.writeQueue:
