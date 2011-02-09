@@ -141,7 +141,7 @@ class World(DirectObject):
 		#set up characters
 		if self.connection.mode == network.MODE_SERVER:
 			self.ai = []
-			for i in range(3):
+			for i in range(0):
 				c = Character(name='Zombie')
 				self.ai.append(AIController(c))
 			print 'INITIALIZING SERVER WITH', len(self.ai), 'ZOMBIES'

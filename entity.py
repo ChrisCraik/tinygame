@@ -1,6 +1,6 @@
 
 from panda3d.core import PandaNode,NodePath,TextNode,Vec3
-from panda3d.core import CollisionNode, CollisionRay, CollisionHandlerQueue, BitMask32
+from panda3d.core import CollisionNode, CollisionRay, CollisionTube, CollisionHandlerQueue, BitMask32
 import random
 from sprite import Sprite2d
 
@@ -104,6 +104,16 @@ class Projectile(NetEnt):
 		
 		self.sprite = Sprite2d('missile.png', rows=3, cols=1, rowPerFace=(0,1,2,1))
 		self.sprite.node.reparentTo(self.node)
+
+		# collision
+		self.collisionHandler = CollisionHandlerQueue()
+		# set up 'from' collision - for detecting char hitting things
+		self.fromCollider = self.node.attachNewNode(CollisionNode('fromCollider'))
+		self.fromCollider.node().addSolid(CollisionRay(0,0,0,0,1,0))
+		self.fromCollider.node().setIntoCollideMask(BitMask32.allOff())
+		self.fromCollider.node().setFromCollideMask(BitMask32.bit(1))
+		Character.collisionTraverser.addCollider(self.fromCollider,self.collisionHandler)
+
 	def getState(self):
 		dataDict = NetObj.getState(self)
 		dataDict[0] = self.node.getState()
@@ -149,15 +159,25 @@ class Character(NetEnt):
 		self.nameNode.setBillboardAxis()
 		self.nameNode.reparentTo(self.node)
 
-		# set up collision
-		self.fromCollider = self.node.attachNewNode(CollisionNode('colNode'))
+		# collision
+		self.collisionHandler = CollisionHandlerQueue()
+		# set up 'from' collision - for detecting char hitting things
+		self.fromCollider = self.node.attachNewNode(CollisionNode('fromCollider'))
 		self.fromCollider.node().addSolid(CollisionRay(0,0,2,0,0,-1))
 		self.fromCollider.node().setIntoCollideMask(BitMask32.allOff())
-		#self.fromCollider.node().setFromCollideMask(BitMask32.bit(0))
-		self.collisionHandler = CollisionHandlerQueue()
-		Character.collisionTraverser.addCollider(self.fromCollider,self.collisionHandler)
-		self.oldPosition = self.node.getPos()
+		self.fromCollider.node().setFromCollideMask(BitMask32.bit(0))
 		#self.fromCollider.show()
+		Character.collisionTraverser.addCollider(self.fromCollider,self.collisionHandler)
+		
+		# set up 'into' collision - for detecting things hitting char
+		self.intoCollider = self.node.attachNewNode(CollisionNode('intoCollider'))
+		self.intoCollider.node().addSolid(CollisionTube(0,0,1,0,0,0,0.5))
+		self.intoCollider.node().setIntoCollideMask(BitMask32.bit(1))
+		self.intoCollider.node().setFromCollideMask(BitMask32.allOff())
+		#self.intoCollider.show()
+
+		self.oldPosition = self.node.getPos()
+		self.collisionZ = self.node.getZ()
 		
 		# set up weapons
 		self.sinceShoot = 0
@@ -218,28 +238,35 @@ class Character(NetEnt):
 		entries = [ch.getEntry(i) for i in range(ch.getNumEntries())]
 		entries.sort(lambda x,y: cmp(y.getSurfacePoint(render).getZ(),
 		                             x.getSurfacePoint(render).getZ()))
+		updateReject = True
+		updateZ = None
+		
 		if len(entries) > 0:
 			zDelta = entries[0].getSurfacePoint(render).getZ() - self.oldPosition.getZ()
 			yDelta = (self.node.getPos() - self.oldPosition).length()
 			
-			if zDelta > yDelta + 0.0001:
-				#don't consider movement if the z movement is smaller than delta (plus margin for error)
-				self.node.setPos(self.oldPosition)
-			else:
-				collisionZ = entries[0].getSurfacePoint(render).getZ()
-				
-				if self.vertVelocity:
-					jumpZ = self.node.getZ() + self.vertVelocity * self.deltaT
-					if jumpZ > collisionZ:
-						self.vertVelocity -= 40 * self.deltaT
-						collisionZ = jumpZ
-					else:
-						self.vertVelocity = None
-					collisionZ = max(jumpZ, collisionZ)
-				self.node.setZ(collisionZ)
-		else:
+			if zDelta < yDelta*1.8 + 0.0001:
+				# allow movement up the slope
+				self.collisionZ = entries[0].getSurfacePoint(render).getZ()
+				updateReject = False
+		
+		if updateReject:
+			# either nothing to stand on, or floor was too steep
 			self.node.setPos(self.oldPosition)
 
+		newZ = self.collisionZ
+		if self.vertVelocity != None:
+			jumpZ = self.node.getZ() + self.vertVelocity * self.deltaT
+			if jumpZ > self.collisionZ:
+				self.vertVelocity -= 40 * self.deltaT
+				self.collisionZ = jumpZ
+			else:
+				self.vertVelocity = None
+			newZ = max(newZ,jumpZ)
+		elif self.node.getZ() - 0.1 > newZ:
+			newZ = self.node.getZ() - 0.1
+			self.vertVelocity = 0
+		self.node.setZ(newZ)
 		# animate the sprite
 		self.animate(self.node.getPos(),self.oldPosition)
 NetEnt.registerSubclass(Character)
