@@ -4,13 +4,13 @@ import random
 
 import network
 from entity import *
+from config import Config
 
 # Panda3d
 import direct.directbase.DirectStart
 from direct.task.Task import Task
 from panda3d.core import WindowProperties
-from panda3d.core import CollisionTraverser,CollisionHandlerPusher
-#from panda3d.core import CollisionHandlerQueue,CollisionRay
+from panda3d.core import CollisionTraverser
 from panda3d.core import Filename,AmbientLight,DirectionalLight
 from panda3d.core import PandaNode,NodePath,Camera,TextNode
 from panda3d.core import Vec2,Vec3,Vec4,BitMask32
@@ -23,11 +23,12 @@ WAIT_TIME = 1
 UPDATE_TIME = 0.03
 
 class Controller(DirectObject):
-	def __init__(self, parentChar):
+	def __init__(self, parentChar, keyMap):
 		assert isinstance(parentChar, Character)
 		base.disableMouse()
 		self.char = parentChar
-
+		self.keyMap = keyMap
+		print 'keymap is',keyMap
 		parentChar.node.rotationallyImmune = True
 
 		self.floater = NodePath('floater')
@@ -47,28 +48,6 @@ class Controller(DirectObject):
 		taskMgr.add(self.controlCamera, 'camera-task')
 		self.h = parentChar.node.getH()
 		self.p = parentChar.node.getP()
-
-		self.keyMap = {'left':0, 'right':0, 'forward':0, 'backward':0, 'jump':0, 'duck':0, 'shoot':0}
-		self.accept('escape',         sys.exit)
-		self.accept('arrow_left',     self.setKey, ['left',1])
-		self.accept('arrow_right',    self.setKey, ['right',1])
-		self.accept('arrow_up',       self.setKey, ['forward',1])
-		self.accept('arrow_down',     self.setKey, ['backward',1])
-		self.accept('arrow_left-up',  self.setKey, ['left',0])
-		self.accept('arrow_right-up', self.setKey, ['right',0])
-		self.accept('arrow_up-up',    self.setKey, ['forward',0])
-		self.accept('arrow_down-up',  self.setKey, ['backward',0])
-
-		self.accept('space',          self.setKey, ['jump',1])
-		self.accept('space-up',       self.setKey, ['jump',0])
-
-		self.accept('lshift',         self.setKey, ['duck',1])
-		self.accept('lshift-up',      self.setKey, ['duck',0])
-		
-		self.accept('mouse1',         self.setKey, ['shoot',1])
-		self.accept('mouse1-up',      self.setKey, ['shoot',0])
-	def setKey(self, key, value):
-		self.keyMap[key] = value
 
 	#the parent of the camera - the character - is angled by the mouse
 	def controlCamera(self, task):
@@ -91,10 +70,10 @@ class Controller(DirectObject):
 
 	def getControl(self):
 		move = Vec2(
-			self.keyMap['right']-self.keyMap['left'],
-			self.keyMap['forward']-self.keyMap['backward'])
+			self.keyMap['Right']-self.keyMap['Left'],
+			self.keyMap['Fore']-self.keyMap['Back'])
 		move.normalize()
-		return [self.h, self.p, move.getX(), move.getY(), self.keyMap['jump'], self.keyMap['duck'], self.keyMap['shoot']]
+		return [self.h, self.p, move.getX(), move.getY(), self.keyMap['Jump'], self.keyMap['Duck'], self.keyMap['Shoot']]
 
 class AIController(DirectObject):
 	def __init__(self, parentChar):
@@ -109,14 +88,15 @@ class AIController(DirectObject):
 			if length < len:
 				tar, len = target, length
 		h = Vec2(0,1).signedAngleDeg(Vec2(target.getXy() - charPos.getXy()))
-		jump = target.getZ() > charPos.getZ()
+		jump = target.getZ() - charPos.getZ() > 0.5
 		#print 'zombie looking in direction:', h, 'at', target, charPos
-		return [h,0,0,1 if len > 1 else 0,jump,0,0]
+		return [h,0,0,1 if len > 2 else 0,jump,0,0]
 
 class World(DirectObject):
 	def __init__(self, args, log):
 		self.args = args
 		self.log = log
+		self.config = Config()
 		
 		#set up world
 		base.win.setClearColor(Vec4(0,0,0,1))
@@ -135,13 +115,13 @@ class World(DirectObject):
 		self.sendDeltaT = 0
 
 		#set up local client
-		self.control = Controller(self.connection.localUser.char)
+		self.control = Controller(self.connection.localUser.char, self.config.controlDict)
 		taskMgr.add(self.step, 'world-step')
 
 		#set up characters
 		if self.connection.mode == network.MODE_SERVER:
 			self.ai = []
-			for i in range(0):
+			for i in range(1):
 				c = Character(name='Zombie')
 				self.ai.append(AIController(c))
 			print 'INITIALIZING SERVER WITH', len(self.ai), 'ZOMBIES'

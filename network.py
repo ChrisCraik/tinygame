@@ -32,6 +32,26 @@ SV_UPDATE = 3
 
 FAKE_DROP_RATE = 0.0
 
+#		message = (client.id, sequenceNr, opCode, client.localAck, messageData)
+#
+# need: client.id, opCode, systemTime,
+#
+#
+
+class Packet():
+	def __init__(self, receiver, opCode, data):
+		self.receiver = receiver
+		self.opCode = opCode
+		self.data = data
+	def __repr__(self):
+		serializer.dumps((self.receiver, self.opCode, self.data))
+	def __str__(self):
+		return str(self.receiver, self.opCode, self.data)
+	@staticmethod
+	def fromString(str):
+		r,o,p = serializer.loads(str)
+		return Packet(r,o,p)
+
 def sendReceive():
 	asyncore.loop(timeout=0, count=10)
 

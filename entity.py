@@ -102,7 +102,7 @@ class Projectile(NetEnt):
 		#print 'there are',len(ProjectilePool.values()),'projectiles'
 		self.flyTime = 0
 		
-		self.sprite = Sprite2d('missile.png', rows=3, cols=1, rowPerFace=(0,1,2,1))
+		self.sprite = Sprite2d('missile.png', rows=3, cols=1, rowPerFace=(0,1,2,1), anchorY=Sprite2d.ALIGN_CENTER)
 		self.sprite.node.reparentTo(self.node)
 
 		# collision
@@ -112,6 +112,7 @@ class Projectile(NetEnt):
 		self.fromCollider.node().addSolid(CollisionRay(0,0,0,0,1,0))
 		self.fromCollider.node().setIntoCollideMask(BitMask32.allOff())
 		self.fromCollider.node().setFromCollideMask(BitMask32.bit(1))
+		#self.fromCollider.show()
 		Character.collisionTraverser.addCollider(self.fromCollider,self.collisionHandler)
 
 	def getState(self):
@@ -124,6 +125,13 @@ class Projectile(NetEnt):
 		self.node.setY(self.node, 20*deltaT)
 		self.flyTime += deltaT
 		return self.flyTime < 4
+	def postCollide(self):
+		ch = self.collisionHandler
+		entries = [ch.getEntry(i) for i in range(ch.getNumEntries())]
+		entries.sort(lambda x,y: cmp(y.getSurfacePoint(render).getZ(),
+		                             x.getSurfacePoint(render).getZ()))
+		if len(entries) > 0:
+			zDelta = entries[0].getSurfacePoint(render)
 	def __del__(self):
 		#print 'PROJECTILE BEING REMOVED'
 		self.node.removeNode()
@@ -218,7 +226,7 @@ class Character(NetEnt):
 		self.oldPosition = self.node.getPos()
 		self.deltaT = deltaT
 
-		speed = 10 if self.nameNode.node().getText()[:3]!='Zom' else 5
+		speed = 10 if self.nameNode.node().getText()[:3]!='Zom' else 3
 		# handle movement
 		self.node.setX(self.node, deltaX * speed * deltaT)
 		self.node.setY(self.node, deltaY * speed * deltaT)
