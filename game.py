@@ -132,12 +132,12 @@ class World(DirectObject):
 
 		# Execute client user input messages (and local client)
 		for control in ([self.control]+self.ai):
-			self.connection.readQueue.appendleft((control, None, network.CL_UPDATE, control.getControl()+[globalClock.getDt()]))
+			messageData = control.getControl()+[globalClock.getDt()]
+			self.connection.readQueue.appendleft(network.Packet(self.connection.localUser, network.CL_UPDATE, messageData, sender=control))
 		while self.connection.readQueue:
-			sender, lastAck, opcode, control = self.connection.readQueue.popleft()
-			#print sender, lastAck, opcode, control
-			assert opcode == network.CL_UPDATE
-			sender.char.applyControl(control, isLocal=(sender.char==self.connection.localUser.char))
+			packet = self.connection.readQueue.popleft()
+			assert packet.opCode == network.CL_UPDATE
+			packet.sender.char.applyControl(packet.data, isLocal=(packet.sender.char==self.connection.localUser.char))
 
 		Character.collisionTraverser.traverse(render)
 		
@@ -159,10 +159,10 @@ class World(DirectObject):
 			for user in UserPool.values():
 				if user == self.connection.localUser:
 					continue
-				#print 'client most recent acked message was', user.localAck
-				self.connection.enqueue(user, network.SV_UPDATE, (user.localAck, entstate))
-			self.connection.incSequence()
-			self.sendDeltaT = 0
+				self.connection.writeQueue.append(network.Packet(user, network.SV_UPDATE, entstate))
+			
+			#reduce time to next update (but never allow more than 1 update 'owed')
+			self.sendDeltaT = min(self.sendDeltaT-UPDATE_TIME, UPDATE_TIME)
 		network.sendReceive()
 		#TODO: save global state + mark diffs
 		NetEnt.getState()
@@ -174,25 +174,26 @@ class World(DirectObject):
 		self.sendDeltaT += globalClock.getDt()
 		if self.sendDeltaT > UPDATE_TIME:
 			message = self.control.getControl()+[self.sendDeltaT]
-			self.connection.enqueue(self.connection.serverUser, network.CL_UPDATE, message)
-			self.connection.incSequence()
+			self.connection.writeQueue.append(network.Packet(self.connection.serverUser, network.CL_UPDATE, message))
 			self.sendDeltaT = 0
+
 		network.sendReceive()
 
 		# Use packets to determine visible objects and their state
 		while self.connection.readQueue:
 			#print 'client received message from server'
-			sender, sequenceNr, opCode, messageData = self.connection.readQueue.popleft()
-			assert opCode == network.SV_UPDATE
-			assert sender == self.connection.serverUser
-			lastAck, serverState = messageData
-			NetEnt.setState(serverState)
+			packet = self.connection.readQueue.popleft()
+			assert packet.opCode == network.SV_UPDATE
+			assert packet.sender == self.connection.serverUser
+			NetEnt.setState(packet.data)
 
 	def step(self, task):
 		if self.connection.mode == network.MODE_SERVER:
 			self.stepServer()
+			print time.clock()
 		else:
 			self.stepClient()
+			print time.clock() + network.deltaClock
 
 		# orient the sprites correctly
 		for item in CharacterPool.values()+ProjectilePool.values():

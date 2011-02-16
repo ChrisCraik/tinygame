@@ -150,6 +150,7 @@ class Character(NetEnt):
 		self.node.reparentTo(render)
 		CharacterPool.add(self)
 		self.vertVelocity = None
+		self.deltaT = 0
 		
 		self.sprite = Sprite2d("origsprite.png", rows=3, cols=5, rowPerFace=(0,1,2,1))
 		self.sprite.createAnim("walk",(1,0,2,0))
@@ -224,6 +225,7 @@ class Character(NetEnt):
 			self.node.setH(h) # also setP(p) if you want char to pitch up and down
 
 		self.oldPosition = self.node.getPos()
+		#print 'setting deltaT for', self.id
 		self.deltaT = deltaT
 
 		speed = 10 if self.nameNode.node().getText()[:3]!='Zom' else 3
@@ -241,7 +243,7 @@ class Character(NetEnt):
 			self.sinceShoot = 0
 			p = Projectile(self.node)
 
-	def postCollide(self):
+	def attemptMove(self):
 		ch = self.collisionHandler
 		entries = [ch.getEntry(i) for i in range(ch.getNumEntries())]
 		entries.sort(lambda x,y: cmp(y.getSurfacePoint(render).getZ(),
@@ -256,14 +258,17 @@ class Character(NetEnt):
 			if zDelta < yDelta*1.8 + 0.0001:
 				# allow movement up the slope
 				self.collisionZ = entries[0].getSurfacePoint(render).getZ()
-				updateReject = False
+				return True
+		return False
 		
-		if updateReject:
+	def postCollide(self):
+		if not self.attemptMove():
 			# either nothing to stand on, or floor was too steep
 			self.node.setPos(self.oldPosition)
 
 		newZ = self.collisionZ
 		if self.vertVelocity != None:
+			#print 'getting deltaT for', self.id
 			jumpZ = self.node.getZ() + self.vertVelocity * self.deltaT
 			if jumpZ > self.collisionZ:
 				self.vertVelocity -= 40 * self.deltaT

@@ -20,48 +20,45 @@ MAX_PACKET_LENGTH = 1024
 
 TIMEOUT = 5
 
-SEQUENCE_MAX = 1<<12
-
-# CL_CONNECT: None
-# CL_UPDATE: previousSequence, changesSinceLast, controlInfo
-# SV_UPDATE: previousSequence, changesSinceLast
-
 CL_CONNECT_REQ = 1
 CL_UPDATE = 2
 SV_UPDATE = 3
 
-FAKE_DROP_RATE = 0.0
-
-#		message = (client.id, sequenceNr, opCode, client.localAck, messageData)
-#
-# need: client.id, opCode, systemTime,
-#
-#
+clockWeighting = 0.95
+deltaClock = 0 #deltaClock is sampled at each packet arrival
 
 class Packet():
-	def __init__(self, receiver, opCode, data):
+	addrToClient = {}
+	def __init__(self, receiver, opCode, data, sender=None, sentTime=None):
+		self.sender = sender
+		#print 'preparing packet to be sent to', receiverID
 		self.receiver = receiver
 		self.opCode = opCode
 		self.data = data
-	def __repr__(self):
-		serializer.dumps((self.receiver, self.opCode, self.data))
-	def __str__(self):
-		return str(self.receiver, self.opCode, self.data)
+		self.receiver = receiver
+		if sentTime:
+			self.sentTime = sentTime
+	def getState(self):
+		return (self.receiver.id, self.opCode, self.data)
+	def toString(self):
+		return serializer.dumps((self.receiver.id, self.opCode, self.data, time.clock()))
 	@staticmethod
-	def fromString(str):
-		r,o,p = serializer.loads(str)
-		return Packet(r,o,p)
+	def fromString(sender, str):
+		global clockWeighting, deltaClock
+		sender.last = time.clock()
+		rID,o,p,t = serializer.loads(str)
+		
+		if rID not in NetEnt.entities:
+			localUser = User(rID)
+		
+		#if client, update local/remote clock diff
+		weight = clockWeighting if deltaClock else 0
+		deltaClock = weight * deltaClock + (1-weight) * (t-sender.last)
+		
+		return Packet(NetEnt.entities[rID], o, p, sentTime=t, sender=sender)
 
 def sendReceive():
 	asyncore.loop(timeout=0, count=10)
-
-def sequenceMoreRecent(s1, s2):
-	if s2 == None:
-		return True
-	if (s1 > s2):
-		return s1 - s2 <= (SEQUENCE_MAX/2)
-	else:
-		return s2 - s1 > (SEQUENCE_MAX/2)
 
 class Connection(asyncore.dispatcher):
 	def __init__(self, mode, args, log):
@@ -73,7 +70,7 @@ class Connection(asyncore.dispatcher):
 		self.mode = mode
 
 		self.addrToClient = {}
-		self.sequenceNr = 0
+		#self.sequenceNr = 0
 
 		self.create_socket(socket.AF_INET, socket.SOCK_DGRAM)
 		self.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -90,19 +87,11 @@ class Connection(asyncore.dispatcher):
 			self.login(args.name)
 			
 			## THIS IS A CHEAT - can this be done elsewhere? ##
-			sender, sequenceNr, opCode, messageData = self.readQueue.popleft()
-			assert opCode == SV_UPDATE
-			assert sender == self.serverUser
-			lastAck, serverState = messageData
-			NetEnt.setState(serverState)
+			packet = self.readQueue.popleft()
+			assert packet.opCode == SV_UPDATE
+			assert packet.sender.id == self.serverUser.id
+			NetEnt.setState(packet.data)
 			###################################################
-	def incSequence(self):
-		self.sequenceNr = (self.sequenceNr + 1) % SEQUENCE_MAX
-
-	def enqueue(self, destinationUser, opCode, messageData):
-		if random.random() < FAKE_DROP_RATE:
-			return
-		self.writeQueue.append((destinationUser, self.sequenceNr, opCode, messageData))
 
 	def login(self, name):
 		assert self.mode == MODE_CLIENT and len(self.addrToClient) == 1
@@ -110,13 +99,13 @@ class Connection(asyncore.dispatcher):
 
 		for i in range(10):
 			print 'trying to log in...'
-			self.enqueue(self.serverUser, CL_CONNECT_REQ, name)
+			self.writeQueue.append(Packet(self.serverUser, CL_CONNECT_REQ, name))
 			time.sleep(1)
 			asyncore.loop(count=10,timeout=1)
-			if self.serverUser.remoteAck != None: #the server's ack'd one of the client's messages
+			if self.serverUser.last != None: #the server's ack'd one of the client's messages
 				print 'server acked message!'
 				break
-		if self.serverUser.remoteAck == None:
+		if self.serverUser.last == None:
 			# server never ack'd any of our messages!
 			assert not 'could not log in!'
 		else:
@@ -124,71 +113,58 @@ class Connection(asyncore.dispatcher):
 
 	# everything below should be threadsafe
 	def handle_read(self):
-		packet, address = self.recvfrom(MAX_PACKET_LENGTH)
+		packetStr, address = self.recvfrom(MAX_PACKET_LENGTH)
 		
-		#print 'received', packet, address
-		message = serializer.loads(packet)
-		self.log.write('RECEIVED:'+json.dumps(message)+'\n')
+		if address not in self.addrToClient:
+			assert self.mode == MODE_SERVER
+			self.addrToClient[address] = User(address=address)
 		
-		localid, sequenceNr, opCode, ackRecent, messageData = message
+		packet = Packet.fromString(self.addrToClient[address], packetStr)
+		self.log.write('RECEIVED:'+json.dumps(packet.getState())+'\n')
+				
 		if self.localUser == None:
 			#first message from server tells client which user it is
 			assert self.mode == MODE_CLIENT
-			self.localUser = User(id=localid)
+			self.localUser = packet.receiver
 
-		assert self.localUser.id == localid
+		assert self.localUser.id == packet.receiver.id
 		
-		if address not in self.addrToClient:
-			name = messageData
-			print 'seeing new client from', address, 'named',name
-			assert self.mode == MODE_SERVER
-			client = User(address=address,
-				remoteAck=None,      # most recent of mine they've seen
-				localAck=sequenceNr,
-				name=name) # most recent of theirs I've seen
-			self.addrToClient[address] = client
+		if packet.opCode == CL_CONNECT_REQ:
+			name = packet.data
+			print 'seeing client connect from', address, 'named',name
+			assert packet.opCode == CL_CONNECT_REQ
+			packet.sender.name = name
 		else:
-			client = self.addrToClient[address]
-			#print 'remote just acked', ackRecent, 'last they acked was', client.remoteAck
-			if sequenceMoreRecent(sequenceNr, client.localAck):
-				client.localAck = sequenceNr
-			if sequenceMoreRecent(ackRecent, client.remoteAck):
-				client.remoteAck = ackRecent
-		client.last = time.clock()
-		if opCode != CL_CONNECT_REQ:
-			self.readQueue.append((client, sequenceNr, opCode, messageData))
+			self.readQueue.append(packet)
 
 	def handle_error(self):
-		self.log.write('#ERROR:'+str(sys.exc_info())+'/n')
+		#self.log.write('#ERROR:'+str(sys.exc_info())+'/n')
 		print sys.exc_info()
 
 	def handle_write(self):
 		if not self.writeQueue:
 			return
-		client, sequenceNr, opCode, messageData = self.writeQueue.popleft()
+		packet = self.writeQueue.popleft()
+		assert isinstance(packet, Packet)
 		
-		if client.last:
-			lastHeard = time.clock() - client.last
-			#print 'last heard from', client.id, lastHeard, 'seconds ago.'
+		if packet.receiver.last:
+			lastHeard = time.clock() - packet.receiver.last
 			if lastHeard > TIMEOUT:
-				print 'connection',client.id,'timed out!'
+				print 'connection',packet.receiver.id,'timed out!'
 				
-				CharacterPool.remove(client.char)
-				del NetEnt.entities[client.char.id]
-				del client.char
+				CharacterPool.remove(packet.receiver.char)
+				del NetEnt.entities[packet.receiver.char.id]
+				del packet.receiver.char
 				
-				UserPool.remove(client)
-				del NetEnt.entities[client.id]
-				del self.addrToClient[client.address] #do we want to do this? Could remember clients!
-				del client
+				UserPool.remove(packet.receiver)
+				del NetEnt.entities[packet.receiver.id]
+				del self.addrTopacket.receiver[packet.receiver.address] #do we want to do this? Could remember clients!
+				del packet.receiver
 				return
 
-		message = (client.id, sequenceNr, opCode, client.localAck, messageData)
-
-		packet = serializer.dumps(message)
-		if len(packet) > MAX_PACKET_LENGTH:
+		packetData = packet.toString()
+		if len(packetData) > MAX_PACKET_LENGTH:
 			raise ValueError('Message too long')
-		self.log.write('SENT:'+json.dumps(message)+'\n')
-		#print 'sending', message, 'to', client.address, '(size is',len(packet),')'
+		self.log.write('SENT:'+json.dumps(packet.getState())+'\n')
 
-		self.sendto(packet, client.address)
+		self.sendto(packetData, packet.receiver.address)
