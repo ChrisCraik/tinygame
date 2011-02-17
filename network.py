@@ -49,7 +49,7 @@ class Packet():
 		rID,o,p,t = serializer.loads(str)
 		
 		if rID not in NetEnt.entities:
-			localUser = User(rID)
+			localUser = User(rID) # create a receiving user if it doesn't exist
 		
 		#if client, update local/remote clock diff
 		weight = clockWeighting if deltaClock else 0
@@ -70,7 +70,6 @@ class Connection(asyncore.dispatcher):
 		self.mode = mode
 
 		self.addrToClient = {}
-		#self.sequenceNr = 0
 
 		self.create_socket(socket.AF_INET, socket.SOCK_DGRAM)
 		self.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -90,7 +89,9 @@ class Connection(asyncore.dispatcher):
 			packet = self.readQueue.popleft()
 			assert packet.opCode == SV_UPDATE
 			assert packet.sender.id == self.serverUser.id
-			NetEnt.setState(packet.data)
+			NetEnt.addState(packet.sentTime-0.5, packet.data)
+			NetEnt.addState(packet.sentTime, packet.data)
+			NetEnt.sampleState(time.clock() + deltaClock - 0.1)
 			###################################################
 
 	def login(self, name):
@@ -138,8 +139,8 @@ class Connection(asyncore.dispatcher):
 			self.readQueue.append(packet)
 
 	def handle_error(self):
-		#self.log.write('#ERROR:'+str(sys.exc_info())+'/n')
-		print sys.exc_info()
+		self.log.write('#ERROR:'+str(sys.exc_info())+'/n')
+		#print sys.exc_info()
 
 	def handle_write(self):
 		if not self.writeQueue:

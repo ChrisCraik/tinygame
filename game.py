@@ -20,7 +20,7 @@ from direct.showbase.DirectObject import DirectObject
 import random, sys, os, math
 
 WAIT_TIME = 1
-UPDATE_TIME = 0.03
+UPDATE_TIME = 0.05
 
 class Controller(DirectObject):
 	def __init__(self, parentChar, keyMap):
@@ -185,15 +185,15 @@ class World(DirectObject):
 			packet = self.connection.readQueue.popleft()
 			assert packet.opCode == network.SV_UPDATE
 			assert packet.sender == self.connection.serverUser
-			NetEnt.setState(packet.data)
+			NetEnt.addState(packet.sentTime, packet.data)
+		
+		NetEnt.sampleState(time.clock() + network.deltaClock)
 
 	def step(self, task):
 		if self.connection.mode == network.MODE_SERVER:
 			self.stepServer()
-			print time.clock()
 		else:
 			self.stepClient()
-			print time.clock() + network.deltaClock
 
 		# orient the sprites correctly
 		for item in CharacterPool.values()+ProjectilePool.values():

@@ -4,6 +4,9 @@ from panda3d.core import CollisionNode, CollisionRay, CollisionTube, CollisionHa
 import random
 from sprite import Sprite2d
 
+SERVER_SAMPLES_SAVED = 20
+CLIENT_RENDER_OFFSET = -0.1
+
 class NetObj:
 	def getState(self):
 		return {'type':self.__class__.id}
@@ -12,6 +15,34 @@ class NetEnt(NetObj):
 	entities = {}
 	currentID = 1
 	types = {}
+	samples = [] # list of (timestamp,data) tuples
+
+	@staticmethod
+	def addState(timestamp, stateDict):
+		if len(NetEnt.samples)==0 or timestamp > NetEnt.samples[-1][0]:
+			NetEnt.samples.append((timestamp,stateDict))
+		else:
+			assert not 'unordered packets'
+		NetEnt.samples = NetEnt.samples[-SERVER_SAMPLES_SAVED:]
+
+	@staticmethod
+	def sampleState(timestamp):
+		timestamp += CLIENT_RENDER_OFFSET
+		
+		#find the samples to represent
+		for i in range(len(NetEnt.samples)):
+			if timestamp < NetEnt.samples[i][0]:
+				break
+		
+		#determine weights for linearly interpolated samples
+		timediff = NetEnt.samples[i][0] - NetEnt.samples[i-1][0]
+		assert timediff > 0
+		weights = (NetEnt.samples[i][0] - timestamp)/timediff
+		weights = weights, 1-weights
+		
+		NetEnt.setState(weights[0], NetEnt.samples[i-1][1],
+		                weights[1], NetEnt.samples[i][1])
+
 	def __init__(self, id=None):
 		if not id:
 			#print 'CREATING (id not asserted)'
@@ -34,21 +65,28 @@ class NetEnt(NetObj):
 			d[id] = ent.getState()
 		return d
 	@staticmethod
-	def setState(stateDict):
-		# first pass at state data: allocate missing entities
-		for id, entState in stateDict.iteritems():
+	def setState(weightOld, stateDictOld,
+	             weightNew, stateDictNew):
+		if weightOld < 0:
+			print 'extrapolating!'
+		# first pass at state data: allocate any entities that don't exist
+		#    note: only allocate from newest stateDict
+		for id, entState in stateDictNew.iteritems():
 			if isinstance(entState, dict):
 				if id not in NetEnt.entities:
 					print 'creating ent with id',id,'of type',NetEnt.types[entState['type']]
 					e = NetEnt.types[entState['type']](id=id)
 
 		# apply state in second pass to allow for entity assignment
-		for id, entState in stateDict.iteritems():
-			if isinstance(entState, dict):
-				NetEnt.entities[id].setState(entState)
-				
+		for id, entStateNew in stateDictNew.iteritems():
+			if isinstance(entStateNew, dict): #ignore pools
+				entStateOld = stateDictOld.get(id, None) # interp if old available
+				NetEnt.entities[id].setState(weightOld, entStateOld,
+				                             weightNew, entStateNew)
+
+		# delete old entities (if they don't exist in early stateDict
 		for id in NetEnt.entities.keys():
-			if id not in stateDict:
+			if id not in stateDictNew:
 				print 'deleting entity', id
 				if id in ProjectilePool.pool:
 					ProjectilePool.remove(NetEnt.entities[id])
@@ -65,7 +103,8 @@ class NetPool(NetEnt):
 	def getState(self):
 		return list(self.pool)
 	def setState(self, newPool):
-		self.pool = set(newPool)
+		#self.pool = set(newPool)
+		assert not 'Ahh, bad!'
 	def add(self, ent):
 		self.pool.add(ent.id)
 	def remove(self, ent):
@@ -82,8 +121,14 @@ class NetNodePath(NodePath):
 	def getState(self):
 		pos = self.getPos()
 		return [str(self.getParent()),(pos[0],pos[1],pos[2]),self.getH()]
-	def setState(self, data):
-		par,pos,h = data
+	def setState(self, weightOld, dataOld, weightNew, dataNew):
+		par,pos,h = dataNew
+		
+		if dataOld:
+			oldPar,oldPos,oldh = dataOld
+			pos = [pos[i]*weightNew + oldPos[i]*weightOld for i in range(3)]
+			h = h*weightNew + oldh*weightOld
+		
 		#self.setParent(par) #todo: fix
 		self.setPos(pos[0],pos[1],pos[2])
 		if not self.rotationallyImmune:
@@ -119,8 +164,9 @@ class Projectile(NetEnt):
 		dataDict = NetObj.getState(self)
 		dataDict[0] = self.node.getState()
 		return dataDict
-	def setState(self, dataDict):
-		self.node.setState(dataDict[0])
+	def setState(self, weightOld, dataDictOld, weightNew, dataDictNew):
+		oldNode = None if not dataDictOld else dataDictOld.get(0,None)
+		self.node.setState(weightOld, oldNode, weightNew, dataDictNew[0])
 	def move(self, deltaT):
 		self.node.setY(self.node, 20*deltaT)
 		self.flyTime += deltaT
@@ -206,11 +252,16 @@ class Character(NetEnt):
 		dataDict[1] = self.nameNode.node().getText()
 		dataDict[2] = self.vertVelocity != None
 		return dataDict
-	def setState(self, dataDict):
+	def setState(self, weightOld, dataOld, weightNew, dataNew):
 		oldPos = self.node.getPos()
-		self.node.setState(dataDict[0])
-		self.nameNode.node().setText(dataDict[1])
+		
+		#interpolate position
+		oldState = dataOld.get(0,None)
+		self.node.setState(weightOld, oldState, weightNew, dataNew[0])
+		
+		self.nameNode.node().setText(dataNew[1])
 		self.animate(oldPos, self.node.getPos())
+
 	def animate(self, oldPos, newPos):
 		if self.vertVelocity:
 			self.sprite.setFrame(3)
@@ -310,9 +361,9 @@ class User(NetEnt):
 			dataDict[0] = None
 		dataDict[1] = self.points
 		return dataDict
-	def setState(self, dataDict):
-		self.char = NetEnt.entities[dataDict[0]]
-		self.points = dataDict[1]
+	def setState(self, weightOld, dataOld, weightNew, dataDictNew):
+		self.char = NetEnt.entities[dataDictNew[0]]
+		self.points = dataDictNew[1]
 NetEnt.registerSubclass(User)
 
 import rencode
