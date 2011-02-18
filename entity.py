@@ -147,7 +147,7 @@ class Projectile(NetEnt):
 		#print 'there are',len(ProjectilePool.values()),'projectiles'
 		self.flyTime = 0
 		
-		self.sprite = Sprite2d('missile.png', rows=3, cols=1, rowPerFace=(0,1,2,1), anchorY=Sprite2d.ALIGN_CENTER)
+		self.sprite = Sprite2d('resources/missile.png', rows=3, cols=1, rowPerFace=(0,1,2,1), anchorY=Sprite2d.ALIGN_CENTER)
 		self.sprite.node.reparentTo(self.node)
 
 		# collision
@@ -198,7 +198,7 @@ class Character(NetEnt):
 		self.vertVelocity = None
 		self.deltaT = 0
 		
-		self.sprite = Sprite2d("origsprite.png", rows=3, cols=5, rowPerFace=(0,1,2,1))
+		self.sprite = Sprite2d('resources/origsprite.png', rows=3, cols=5, rowPerFace=(0,1,2,1))
 		self.sprite.createAnim("walk",(1,0,2,0))
 		self.sprite.node.reparentTo(self.node)
 		

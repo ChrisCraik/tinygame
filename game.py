@@ -100,7 +100,7 @@ class World(DirectObject):
 		
 		#set up world
 		base.win.setClearColor(Vec4(0,0,0,1))
-		self.environ = loader.loadModel('models/world')
+		self.environ = loader.loadModel('resources/models/world')
 		self.environ.reparentTo(render)
 		self.environ.setPos(0,0,0)
 		Character.startPosition = self.environ.find('**/start_point').getPos()
