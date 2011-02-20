@@ -82,16 +82,16 @@ class AIController(DirectObject):
 		self.char = parentChar
 	def getControl(self):
 		targets = [c.node.getPos() for c in CharacterPool.values() if c.nameNode.node().getText()[:3]!='Zom']
-		tar, len = None, ()
+		bestTarget, bestLength = None, ()
 		charPos = self.char.node.getPos()
 		for target in targets:
 			length = (target - charPos).length()
-			if length < len:
-				tar, len = target, length
-		h = Vec2(0,1).signedAngleDeg(Vec2(target.getXy() - charPos.getXy()))
-		jump = target.getZ() - charPos.getZ() > 0.5
+			if length < bestLength:
+				bestTarget, bestLength = target, length
+		h = Vec2(0,1).signedAngleDeg(Vec2(bestTarget.getXy() - charPos.getXy()))
+		jump = bestTarget.getZ() - charPos.getZ() > 0.5
 		#print 'zombie looking in direction:', h, 'at', target, charPos
-		forward = 1 if len > 2 else 0
+		forward = 1 if bestLength > 2 else 0
 		return [h,0,0,forward,jump,0,0]
 
 class World(DirectObject):
@@ -138,7 +138,7 @@ class World(DirectObject):
 		while self.connection.readQueue:
 			packet = self.connection.readQueue.popleft()
 			assert packet.opCode == network.CL_UPDATE
-			print 'saw client update, from time', packet.data[0]
+			#print 'saw client update, from time', packet.data[0]
 			packet.sender.addControlState(packet.data[0],packet.data[1])
 
 		# Simulate characters attempting to move

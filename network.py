@@ -150,7 +150,7 @@ class Connection(asyncore.dispatcher):
 			name = packet.data
 			print 'seeing client connect from', address, 'named',name
 			assert packet.opCode == CL_CONNECT_REQ
-			packet.sender.name = name
+			packet.sender.char.name = name
 		else:
 			self.readQueue.append(packet)
 		self.addrToClient[address].last = packet.arriveTime

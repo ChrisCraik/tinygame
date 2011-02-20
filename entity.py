@@ -7,8 +7,8 @@ from sprite import Sprite2d
 CLIENT_SAMPLES_SAVED = 20    # client saves this many of most recent samples from the server
 SERVER_SAMPLES_SAVED = 20    # server saves this many of most recent input samples per client
 
-CLIENT_RENDER_OFFSET = -0.1  # client's delay past (running average) arrival time to account for delay variation
-SERVER_INPUT_OFFSET = 0.1    # server's delay sampling user input, to allow it to arrive
+CLIENT_RENDER_OFFSET = -0.05 # client's delay past (running average) arrival time to account for delay variation
+SERVER_INPUT_OFFSET = -0.05  # server's delay sampling user input, to allow it to arrive
 
 def addState(samples, newTimeStamp, newDict, samplesSaved):
 	if len(samples)==0 or newTimeStamp > samples[-1][0]:
@@ -27,6 +27,8 @@ def takeStateSample(samples, timeStamp):
 			if timeStamp < samples[i][0]:
 				break
 		
+		#print timeStamp, samples[i][0], samples[i-1][0]
+		
 		#determine weights for linearly interpolated samples
 		timediff = samples[i][0] - samples[i-1][0]
 		assert timediff > 0
@@ -39,7 +41,7 @@ def takeStateSample(samples, timeStamp):
 class NetObj:
 	def getState(self):
 		return {'type':self.__class__.id}
-		
+
 class NetEnt(NetObj):
 	entities = {}
 	currentID = 1
@@ -148,12 +150,13 @@ class NetNodePath(NodePath):
 
 ProjectilePool = NetPool()
 class Projectile(NetEnt):
-	def __init__(self, parentNode=None, id=None):
+	def __init__(self, parentNode=None, pitch=None, id=None):
 		NetEnt.__init__(self, id)
 		self.node = NetNodePath(PandaNode('projectile'))
 		if parentNode:
 			self.node.setPos(parentNode.getPos() + (0,0,1))
 			self.node.setHpr(parentNode.getHpr())
+			self.node.setP(pitch)
 		self.node.reparentTo(render)
 		ProjectilePool.add(self)
 		#print 'there are',len(ProjectilePool.values()),'projectiles'
@@ -304,7 +307,7 @@ class Character(NetEnt):
 		self.sinceShoot += deltaT
 		if shoot and self.sinceShoot > 0.5:
 			self.sinceShoot = 0
-			p = Projectile(self.node)
+			Projectile(self.node, pitch=p)
 
 	def attemptMove(self):
 		ch = self.collisionHandler
