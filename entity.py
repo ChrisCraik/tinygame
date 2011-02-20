@@ -4,13 +4,42 @@ from panda3d.core import CollisionNode, CollisionRay, CollisionTube, CollisionHa
 import random
 from sprite import Sprite2d
 
-SERVER_SAMPLES_SAVED = 20
-CLIENT_RENDER_OFFSET = -0.1
+CLIENT_SAMPLES_SAVED = 20    # client saves this many of most recent samples from the server
+SERVER_SAMPLES_SAVED = 20    # server saves this many of most recent input samples per client
+
+CLIENT_RENDER_OFFSET = -0.1  # client's delay past (running average) arrival time to account for delay variation
+SERVER_INPUT_OFFSET = 0.1    # server's delay sampling user input, to allow it to arrive
+
+def addState(samples, newTimeStamp, newDict, samplesSaved):
+	if len(samples)==0 or newTimeStamp > samples[-1][0]:
+		samples.append((newTimeStamp,newDict))
+	else:
+		for i in range(len(samples)):
+			if newTimeStamp > samples[i][0]:
+				samples.insert(i, (newTimeStamp,newDict))
+				break
+		#assert not 'unordered packets'
+	samples = samples[-samplesSaved:]
+
+def takeStateSample(samples, timeStamp):
+		#find the samples to represent
+		for i in range(len(samples)):
+			if timeStamp < samples[i][0]:
+				break
+		
+		#determine weights for linearly interpolated samples
+		timediff = samples[i][0] - samples[i-1][0]
+		assert timediff > 0
+		weights = (samples[i][0] - timeStamp)/timediff
+		weights = weights, 1-weights
+		
+		return (weights[0], samples[i-1][1],
+		        weights[1], samples[i][1])
 
 class NetObj:
 	def getState(self):
 		return {'type':self.__class__.id}
-
+		
 class NetEnt(NetObj):
 	entities = {}
 	currentID = 1
@@ -18,30 +47,13 @@ class NetEnt(NetObj):
 	samples = [] # list of (timestamp,data) tuples
 
 	@staticmethod
-	def addState(timestamp, stateDict):
-		if len(NetEnt.samples)==0 or timestamp > NetEnt.samples[-1][0]:
-			NetEnt.samples.append((timestamp,stateDict))
-		else:
-			assert not 'unordered packets'
-		NetEnt.samples = NetEnt.samples[-SERVER_SAMPLES_SAVED:]
+	def addGlobalState(newTimeStamp, newDict):
+		addState(NetEnt.samples, newTimeStamp, newDict, CLIENT_SAMPLES_SAVED)
 
 	@staticmethod
-	def sampleState(timestamp):
-		timestamp += CLIENT_RENDER_OFFSET
-		
-		#find the samples to represent
-		for i in range(len(NetEnt.samples)):
-			if timestamp < NetEnt.samples[i][0]:
-				break
-		
-		#determine weights for linearly interpolated samples
-		timediff = NetEnt.samples[i][0] - NetEnt.samples[i-1][0]
-		assert timediff > 0
-		weights = (NetEnt.samples[i][0] - timestamp)/timediff
-		weights = weights, 1-weights
-		
-		NetEnt.setState(weights[0], NetEnt.samples[i-1][1],
-		                weights[1], NetEnt.samples[i][1])
+	def takeGlobalStateSample(timeStamp):
+		w0,s0,w1,s1 = takeStateSample(NetEnt.samples, timeStamp + CLIENT_RENDER_OFFSET)
+		NetEnt.setState(w0,s0,w1,s1)
 
 	def __init__(self, id=None):
 		if not id:
@@ -270,8 +282,8 @@ class Character(NetEnt):
 		else:
 			self.sprite.setFrame(0)
 
-	def applyControl(self, controlData, isLocal):
-		h, p, deltaX, deltaY, jump, duck, shoot, deltaT = controlData
+	def applyControl(self, deltaT, controlData, isLocal):
+		h, p, deltaX, deltaY, jump, duck, shoot = controlData
 		if not isLocal:
 			self.node.setH(h) # also setP(p) if you want char to pitch up and down
 
@@ -348,8 +360,15 @@ class User(NetEnt):
 		if not id:
 			# as client never create member NetEnt, it will be passed from server.
 			self.char = Character(name)
+			self.controlSamples = [(-1,[0,0,0,0,0,0,0]),(0,[0,0,0,0,0,0,0])]
 		UserPool.add(self)
-		
+	
+	def takeControlStateSample(self, timeStamp):
+		w0,s0,w1,s1 = takeStateSample(self.controlSamples, timeStamp + SERVER_INPUT_OFFSET)
+		return s1
+	def addControlState(self, newTimeStamp, newDict):
+		addState(self.controlSamples, newTimeStamp, newDict, SERVER_SAMPLES_SAVED)
+
 	def __del__(self):
 		print 'USER BEING REMOVED'
 		

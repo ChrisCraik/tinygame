@@ -21,6 +21,7 @@ import random, sys, os, math
 
 WAIT_TIME = 1
 UPDATE_TIME = 0.05
+CONTROL_REDUNDANCY = 10 # number of extra times to send each control message from the client
 
 class Controller(DirectObject):
 	def __init__(self, parentChar, keyMap):
@@ -90,7 +91,8 @@ class AIController(DirectObject):
 		h = Vec2(0,1).signedAngleDeg(Vec2(target.getXy() - charPos.getXy()))
 		jump = target.getZ() - charPos.getZ() > 0.5
 		#print 'zombie looking in direction:', h, 'at', target, charPos
-		return [h,0,0,1 if len > 2 else 0,jump,0,0]
+		forward = 1 if len > 2 else 0
+		return [h,0,0,forward,jump,0,0]
 
 class World(DirectObject):
 	def __init__(self, args, log):
@@ -119,28 +121,36 @@ class World(DirectObject):
 		taskMgr.add(self.step, 'world-step')
 
 		#set up characters
-		if self.connection.mode == network.MODE_SERVER:
+		if network.mode == network.MODE_SERVER:
 			self.ai = []
 			for i in range(1):
 				c = Character(name='Zombie')
 				self.ai.append(AIController(c))
 			print 'INITIALIZING SERVER WITH', len(self.ai), 'ZOMBIES'
-
-	def stepServer(self):
-		assert self.connection.mode == network.MODE_SERVER
+		else:
+			self.controlList = []
+			
+	def stepServer(self, updateDue):
+		assert network.mode == network.MODE_SERVER
 		network.sendReceive()
 
-		# Execute client user input messages (and local client)
-		for control in ([self.control]+self.ai):
-			messageData = control.getControl()+[globalClock.getDt()]
-			self.connection.readQueue.appendleft(network.Packet(self.connection.localUser, network.CL_UPDATE, messageData, sender=control))
+		# handle received client input
 		while self.connection.readQueue:
 			packet = self.connection.readQueue.popleft()
 			assert packet.opCode == network.CL_UPDATE
-			packet.sender.char.applyControl(packet.data, isLocal=(packet.sender.char==self.connection.localUser.char))
+			print 'saw client update, from time', packet.data[0]
+			packet.sender.addControlState(packet.data[0],packet.data[1])
+
+		# Simulate characters attempting to move
+		for control in ([self.control]+self.ai):
+			control.char.applyControl(globalClock.getDt(), control.getControl(), control==self.control)
+		timeStamp = time.clock()
+		for user in UserPool.values():
+			if user != self.connection.localUser:
+				user.char.applyControl(globalClock.getDt(), user.takeControlStateSample(timeStamp), False)
 
 		Character.collisionTraverser.traverse(render)
-		
+
 		# Simulate server-controlled objects using simulation time from last full pass
 		for c in CharacterPool.values():
 			c.postCollide()
@@ -151,31 +161,22 @@ class World(DirectObject):
 				del p
 
 		# For each connected client, package up visible objects/world state and send to client
-		self.sendDeltaT += globalClock.getDt()
-		entstate = NetEnt.getState()
-		for id in ProjectilePool.pool:
-			assert id in NetEnt.entities
-		if self.sendDeltaT > UPDATE_TIME:
+		if updateDue:
+			entstate = NetEnt.getState()
 			for user in UserPool.values():
 				if user == self.connection.localUser:
 					continue
 				self.connection.writeQueue.append(network.Packet(user, network.SV_UPDATE, entstate))
-			
-			#reduce time to next update (but never allow more than 1 update 'owed')
-			self.sendDeltaT = min(self.sendDeltaT-UPDATE_TIME, UPDATE_TIME)
 		network.sendReceive()
-		#TODO: save global state + mark diffs
-		NetEnt.getState()
 
-	def stepClient(self):
-		assert self.connection.mode == network.MODE_CLIENT
+	def stepClient(self, updateDue):
+		assert network.mode == network.MODE_CLIENT
 
-		# sample client input, deltaT, send to server
-		self.sendDeltaT += globalClock.getDt()
-		if self.sendDeltaT > UPDATE_TIME:
-			message = self.control.getControl()+[self.sendDeltaT]
-			self.connection.writeQueue.append(network.Packet(self.connection.serverUser, network.CL_UPDATE, message))
-			self.sendDeltaT = 0
+		if updateDue:
+			# add client timestamp, client input sample to list, then send to server
+			#self.controlList = self.controlList[-CONTROL_REDUNDANCY:]+[(network.getTime(), self.control.getControl())]
+			controlData = (network.getTime(), self.control.getControl())
+			self.connection.writeQueue.append(network.Packet(self.connection.serverUser, network.CL_UPDATE, controlData)) #self.controlList))
 
 		network.sendReceive()
 
@@ -185,15 +186,24 @@ class World(DirectObject):
 			packet = self.connection.readQueue.popleft()
 			assert packet.opCode == network.SV_UPDATE
 			assert packet.sender == self.connection.serverUser
-			NetEnt.addState(packet.sentTime, packet.data)
+			NetEnt.addGlobalState(packet.sentTime, packet.data)
 		
-		NetEnt.sampleState(time.clock() + network.deltaClock)
+		NetEnt.takeGlobalStateSample(network.getTime())
 
 	def step(self, task):
-		if self.connection.mode == network.MODE_SERVER:
-			self.stepServer()
+		# determine if an update packet is due
+		self.sendDeltaT += globalClock.getDt()
+		updateDue = self.sendDeltaT > UPDATE_TIME
+		
+		if network.mode == network.MODE_SERVER:
+			self.stepServer(updateDue)
 		else:
-			self.stepClient()
+			self.stepClient(updateDue)
+
+		#reset update counter
+		if updateDue:
+			# increase time to next update (but never allow more than 1 update 'owed')
+			self.sendDeltaT = min(self.sendDeltaT-UPDATE_TIME, UPDATE_TIME)
 
 		# orient the sprites correctly
 		for item in CharacterPool.values()+ProjectilePool.values():
