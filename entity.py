@@ -13,6 +13,10 @@ SERVER_INPUT_OFFSET = -0.05  # server's delay sampling user input, to allow it t
 
 SHOW_COLLISIONS = False
 
+BITMASK_EMPTY = BitMask32.allOff()
+BITMASK_TERRAIN = BitMask32.bit(0)
+BITMASK_CHARACTER = BitMask32.bit(1)
+
 def addState(samples, newTimeStamp, newDict, samplesSaved):
 	if len(samples)==0 or newTimeStamp > samples[-1][0]:
 		samples.append((newTimeStamp,newDict))
@@ -168,8 +172,8 @@ class Effect(NetEnt):
 		# set up 'from' collision - for detecting char hitting things
 		self.fromCollider = self.node.attachNewNode(CollisionNode('fromCollider'))
 		self.fromCollider.node().addSolid(CollisionSphere(0,0,0,1))
-		self.fromCollider.node().setIntoCollideMask(BitMask32.allOff())
-		self.fromCollider.node().setFromCollideMask(BitMask32.bit(1))
+		self.fromCollider.node().setIntoCollideMask(BITMASK_EMPTY)
+		self.fromCollider.node().setFromCollideMask(BITMASK_CHARACTER)
 		
 		self.fromCollider.show()
 		Character.collisionTraverser.addCollider(self.fromCollider,self.collisionHandler)
@@ -182,9 +186,21 @@ class Effect(NetEnt):
 		self.node.setState(weightOld, oldNode, weightNew, dataDictNew[0])
 	def movePostCollide(self, deltaT):
 		self.activeTime += deltaT
-		self.collisionHandler.sortEntries()
-		#if self.collisionHandler.getNumEntries() > 0:
-		#	print'collided with ',self.collisionHandler.getEntry(0)
+		#self.collisionHandler.sortEntries()
+		ch = self.collisionHandler
+		for e in [ch.getEntry(i) for i in range(ch.getNumEntries())]:
+			charID = int(e.getIntoNode().getParent(0).getTag('ID'))
+			char = NetEnt.entities[charID]
+			dir = (e.getSurfacePoint(render) - self.node.getPos())
+			dir.normalize()
+			power = 20
+			char.xVelocity = power*(dir.getX())
+			char.yVelocity = power*(dir.getY())
+			char.vertVelocity = max(power*(dir.getZ()),5)
+			char.node.setZ(char.node.getZ()+0.5)
+			print dir, char.xVelocity, char.yVelocity, char.vertVelocity
+		self.fromCollider.node().setFromCollideMask(BITMASK_EMPTY)
+		#Character.collisionTraverser.removeCollider(self.fromCollider)
 		#	#todo: evaluate to see if entry is collidable (e.g. same team)
 		#	collisionDist = (self.node.getPos() - self.collisionHandler.getEntry(0).getSurfacePoint(render)).length()
 		#	if collisionDist < desiredDistance and self.flyTime > 0.05:
@@ -217,8 +233,8 @@ class Projectile(NetEnt):
 		self.collisionHandler = CollisionHandlerQueue()
 		self.fromCollider = self.node.attachNewNode(CollisionNode('fromCollider'))
 		self.fromCollider.node().addSolid(CollisionRay(0,0,0,0,1,0))
-		self.fromCollider.node().setIntoCollideMask(BitMask32.allOff())
-		self.fromCollider.node().setFromCollideMask(BitMask32.bit(1))
+		self.fromCollider.node().setIntoCollideMask(BITMASK_EMPTY)
+		self.fromCollider.node().setFromCollideMask(BITMASK_TERRAIN | BITMASK_CHARACTER)
 		if SHOW_COLLISIONS:
 			self.fromCollider.show()
 		Character.collisionTraverser.addCollider(self.fromCollider,self.collisionHandler)
@@ -254,17 +270,20 @@ class Character(NetEnt):
 	def __init__(self, name='NONAME', id=None):
 		NetEnt.__init__(self, id)
 		self.node = NetNodePath(PandaNode('A Character'))
+		self.node.setTag('ID',str(self.id))
 		if not id:
 			self.spawn()
 		self.node.reparentTo(render)
 		CharacterPool.add(self)
+		self.xVelocity = 0
+		self.yVelocity = 0
 		self.vertVelocity = None
 		self.duck = False
 		self.deltaT = 0
 		
 		self.sprite = Sprite2d('resources/origsprite.png', rows=3, cols=8, rowPerFace=(0,1,2,1))
-		self.sprite.createAnim("walk",(1,0,2,0))
-		self.sprite.createAnim("kick",(5,6,7,6,5))
+		self.sprite.createAnim('walk',(1,0,2,0))
+		self.sprite.createAnim('kick',(5,6,7,6,5))
 		self.sprite.node.reparentTo(self.node)
 		
 		# set up character's name label
@@ -284,8 +303,8 @@ class Character(NetEnt):
 		# set up 'from' collision - for detecting char hitting things
 		self.fromCollider = self.node.attachNewNode(CollisionNode('fromCollider'))
 		self.fromCollider.node().addSolid(CollisionRay(0,0,2,0,0,-1))
-		self.fromCollider.node().setIntoCollideMask(BitMask32.allOff())
-		self.fromCollider.node().setFromCollideMask(BitMask32.bit(0))
+		self.fromCollider.node().setIntoCollideMask(BITMASK_EMPTY)
+		self.fromCollider.node().setFromCollideMask(BITMASK_TERRAIN)
 		if SHOW_COLLISIONS:
 			self.fromCollider.show()
 		Character.collisionTraverser.addCollider(self.fromCollider,self.collisionHandler)
@@ -293,8 +312,8 @@ class Character(NetEnt):
 		# set up 'into' collision - for detecting things hitting char
 		self.intoCollider = self.node.attachNewNode(CollisionNode('intoCollider'))
 		self.intoCollider.node().addSolid(CollisionTube(0,0,1,0,0,0,0.5))
-		self.intoCollider.node().setIntoCollideMask(BitMask32.bit(1))
-		self.intoCollider.node().setFromCollideMask(BitMask32.allOff())
+		self.intoCollider.node().setIntoCollideMask(BITMASK_CHARACTER)
+		self.intoCollider.node().setFromCollideMask(BITMASK_EMPTY)
 		if SHOW_COLLISIONS:
 			self.intoCollider.show()
 
@@ -333,12 +352,12 @@ class Character(NetEnt):
 	def animate(self, oldPos, newPos):
 		if self.duck:
 			self.sprite.setFrame(4)
-		elif self.sinceShoot < .6:
-			self.sprite.playAnim("kick", loop=False)
+		elif self.sinceShoot < .5:
+			self.sprite.playAnim('kick', loop=True)
 		elif self.vertVelocity:
 			self.sprite.setFrame(3)
 		elif (newPos - oldPos).length() > 0.001:
-			self.sprite.playAnim("walk", loop=True)
+			self.sprite.playAnim('walk', loop=True)
 		else:
 			self.sprite.setFrame(0)
 
@@ -354,8 +373,12 @@ class Character(NetEnt):
 		speed = 10 if self.nameNode.node().getText()[:3]!='Zom' else 3
 		# handle movement
 		self.duck = duck
+		# movement relative to heading
 		self.node.setX(self.node, deltaX * speed * deltaT)
 		self.node.setY(self.node, deltaY * speed * deltaT)
+		# absolute movement from velocity
+		self.node.setX(self.node.getX() + self.xVelocity*deltaT)
+		self.node.setY(self.node.getY() + self.yVelocity*deltaT)
 		
 		#handle jumping input
 		if jump and self.vertVelocity == None:
@@ -390,20 +413,23 @@ class Character(NetEnt):
 			# either nothing to stand on, or floor was too steep
 			self.node.setPos(self.oldPosition)
 
-		newZ = self.collisionZ
 		if self.vertVelocity != None:
-			#print 'getting deltaT for', self.id
+			# handle vertical velocity
 			jumpZ = self.node.getZ() + self.vertVelocity * self.deltaT
 			if jumpZ > self.collisionZ:
+				# still flying through the air
 				self.vertVelocity -= 40 * self.deltaT
-				self.collisionZ = jumpZ
 			else:
+				# hit the ground
+				self.xVelocity, self.yVelocity = 0,0
 				self.vertVelocity = None
-			newZ = max(newZ,jumpZ)
-		elif self.node.getZ() - 0.1 > newZ:
-			newZ = self.node.getZ() - 0.1
+			self.node.setZ(max(self.collisionZ,jumpZ))
+		elif self.node.getZ() - 0.1 > self.collisionZ:
+			# stepped off a cliff: start falling
 			self.vertVelocity = 0
-		self.node.setZ(newZ)
+		else:
+			# didn't jump, or fall off cliff: stick to ground
+			self.node.setZ(self.collisionZ)
 		# animate the sprite
 		self.animate(self.node.getPos(),self.oldPosition)
 NetEnt.registerSubclass(Character)

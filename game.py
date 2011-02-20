@@ -108,6 +108,7 @@ class World(DirectObject):
 		self.environ = loader.loadModel('resources/models/world')
 		self.environ.reparentTo(render)
 		self.environ.setPos(0,0,0)
+		self.environ.setCollideMask(BITMASK_TERRAIN)
 		Character.startPosition = self.environ.find('**/start_point').getPos()
 		
 		#set up collisions
@@ -158,18 +159,18 @@ class World(DirectObject):
 		# handle collide case
 		for c in CharacterPool.values():
 			c.postCollide()
-		# process projectiles and explosions
+		# process explosions, then projectiles
+		for e in EffectPool.values():
+			if not e.movePostCollide(globalClock.getDt()):
+				EffectPool.remove(e)
+				del NetEnt.entities[e.id]
+				del e
 		for p in ProjectilePool.values():
 			if not p.movePostCollide(globalClock.getDt()):
 				Effect(parentNode=p.node)
 				ProjectilePool.remove(p)
 				del NetEnt.entities[p.id]
 				del p
-		for e in EffectPool.values():
-			if not e.movePostCollide(globalClock.getDt()):
-				EffectPool.remove(e)
-				del NetEnt.entities[e.id]
-				del e
 		# For each connected client, package up visible objects/world state and send to client
 		if updateDue:
 			entstate = NetEnt.getState()
