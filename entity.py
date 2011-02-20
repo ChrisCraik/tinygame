@@ -1,6 +1,7 @@
 
 from panda3d.core import PandaNode,NodePath,TextNode,Vec3
-from panda3d.core import CollisionNode, CollisionRay, CollisionTube, CollisionHandlerQueue, BitMask32
+from panda3d.core import CollisionRay, CollisionSphere, CollisionTube
+from panda3d.core import CollisionNode, CollisionHandlerQueue, BitMask32
 import random
 from sprite import Sprite2d
 
@@ -90,7 +91,6 @@ class NetEnt(NetObj):
 		for id, entState in stateDictNew.iteritems():
 			if isinstance(entState, dict):
 				if id not in NetEnt.entities:
-					print 'creating ent with id',id,'of type',NetEnt.types[entState['type']]
 					e = NetEnt.types[entState['type']](id=id)
 
 		# apply state in second pass to allow for entity assignment
@@ -103,7 +103,9 @@ class NetEnt(NetObj):
 		# delete old entities (if they don't exist in early stateDict
 		for id in NetEnt.entities.keys():
 			if id not in stateDictNew:
-				print 'deleting entity', id
+				#print 'deleting entity', id
+				if id in EffectPool.pool:
+					EffectPool.remove(NetEnt.entities[id])
 				if id in ProjectilePool.pool:
 					ProjectilePool.remove(NetEnt.entities[id])
 				if id in CharacterPool.pool:
@@ -150,6 +152,50 @@ class NetNodePath(NodePath):
 		if not self.rotationallyImmune:
 			self.setH(h)
 
+EffectPool = NetPool()
+class Effect(NetEnt):
+	def __init__(self, parentNode=None, id=None):
+		NetEnt.__init__(self, id)
+		self.node = NetNodePath(PandaNode('effect'))
+		if parentNode:
+			self.node.setPos(parentNode.getPos())
+		self.node.reparentTo(render)
+		EffectPool.add(self)
+		self.activeTime = 0
+		
+		# collision
+		self.collisionHandler = CollisionHandlerQueue()
+		# set up 'from' collision - for detecting char hitting things
+		self.fromCollider = self.node.attachNewNode(CollisionNode('fromCollider'))
+		self.fromCollider.node().addSolid(CollisionSphere(0,0,0,1))
+		self.fromCollider.node().setIntoCollideMask(BitMask32.allOff())
+		self.fromCollider.node().setFromCollideMask(BitMask32.bit(1))
+		
+		self.fromCollider.show()
+		Character.collisionTraverser.addCollider(self.fromCollider,self.collisionHandler)
+	def getState(self):
+		dataDict = NetObj.getState(self)
+		dataDict[0] = self.node.getState()
+		return dataDict
+	def setState(self, weightOld, dataDictOld, weightNew, dataDictNew):
+		oldNode = None if not dataDictOld else dataDictOld.get(0,None)
+		self.node.setState(weightOld, oldNode, weightNew, dataDictNew[0])
+	def movePostCollide(self, deltaT):
+		self.activeTime += deltaT
+		self.collisionHandler.sortEntries()
+		#if self.collisionHandler.getNumEntries() > 0:
+		#	print'collided with ',self.collisionHandler.getEntry(0)
+		#	#todo: evaluate to see if entry is collidable (e.g. same team)
+		#	collisionDist = (self.node.getPos() - self.collisionHandler.getEntry(0).getSurfacePoint(render)).length()
+		#	if collisionDist < desiredDistance and self.flyTime > 0.05:
+		#		print 'Hit em!'
+		#self.fromCollider.setScale(1+self.activeTime)
+		return self.activeTime < 0.5
+	def __del__(self):
+		#print 'explosion deleted'
+		self.node.removeNode()
+NetEnt.registerSubclass(Effect)
+
 ProjectilePool = NetPool()
 class Projectile(NetEnt):
 	def __init__(self, parentNode=None, pitch=None, id=None):
@@ -192,7 +238,6 @@ class Projectile(NetEnt):
 			#todo: evaluate to see if entry is collidable (e.g. same team)
 			collisionDist = (self.node.getPos() - self.collisionHandler.getEntry(0).getSurfacePoint(render)).length()
 			if collisionDist < desiredDistance and self.flyTime > 0.05:
-				print 'Explode!'
 				return False
 		self.node.setY(self.node, desiredDistance)
 		self.flyTime += deltaT

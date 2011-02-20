@@ -155,8 +155,8 @@ class Connection(asyncore.dispatcher):
 			self.readQueue.append(packet)
 		self.addrToClient[address].last = packet.arriveTime
 
-	#def handle_error(self):
-	#	self.log.write('#ERROR:'+str(sys.exc_info())+'/n')
+	def handle_error(self):
+		self.log.write('#ERROR:'+str(sys.exc_info())+'/n')
 	#	print sys.exc_info()
 
 	def handle_write(self):

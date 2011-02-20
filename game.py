@@ -142,7 +142,7 @@ class World(DirectObject):
 			#print 'saw client update, from time', packet.data[0]
 			packet.sender.addControlState(packet.data[0],packet.data[1])
 
-		# Simulate characters, projectiles attempting to move
+		# Simulate characters attempting to move
 		for control in ([self.control]+self.ai):
 			control.char.applyControl(globalClock.getDt(), control.getControl(), control==self.control)
 		timeStamp = time.clock()
@@ -155,11 +155,18 @@ class World(DirectObject):
 		# handle collide case
 		for c in CharacterPool.values():
 			c.postCollide()
+		# process projectiles and explosions
 		for p in ProjectilePool.values():
 			if not p.movePostCollide(globalClock.getDt()):
+				Effect(parentNode=p.node)
 				ProjectilePool.remove(p)
 				del NetEnt.entities[p.id]
 				del p
+		for e in EffectPool.values():
+			if not e.movePostCollide(globalClock.getDt()):
+				EffectPool.remove(e)
+				del NetEnt.entities[e.id]
+				del e
 		# For each connected client, package up visible objects/world state and send to client
 		if updateDue:
 			entstate = NetEnt.getState()
