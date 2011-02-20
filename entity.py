@@ -259,10 +259,12 @@ class Character(NetEnt):
 		self.node.reparentTo(render)
 		CharacterPool.add(self)
 		self.vertVelocity = None
+		self.duck = False
 		self.deltaT = 0
 		
-		self.sprite = Sprite2d('resources/origsprite.png', rows=3, cols=5, rowPerFace=(0,1,2,1))
+		self.sprite = Sprite2d('resources/origsprite.png', rows=3, cols=8, rowPerFace=(0,1,2,1))
 		self.sprite.createAnim("walk",(1,0,2,0))
+		self.sprite.createAnim("kick",(5,6,7,6,5))
 		self.sprite.node.reparentTo(self.node)
 		
 		# set up character's name label
@@ -315,7 +317,7 @@ class Character(NetEnt):
 		dataDict = NetObj.getState(self)
 		dataDict[0] = self.node.getState()
 		dataDict[1] = self.nameNode.node().getText()
-		dataDict[2] = self.vertVelocity != None
+		dataDict[2] = self.sinceShoot
 		return dataDict
 	def setState(self, weightOld, dataOld, weightNew, dataNew):
 		oldPos = self.node.getPos()
@@ -325,10 +327,15 @@ class Character(NetEnt):
 		self.node.setState(weightOld, oldState, weightNew, dataNew[0])
 		
 		self.nameNode.node().setText(dataNew[1])
+		self.sinceShoot = dataNew[2]
 		self.animate(oldPos, self.node.getPos())
 
 	def animate(self, oldPos, newPos):
-		if self.vertVelocity:
+		if self.duck:
+			self.sprite.setFrame(4)
+		elif self.sinceShoot < .6:
+			self.sprite.playAnim("kick", loop=False)
+		elif self.vertVelocity:
 			self.sprite.setFrame(3)
 		elif (newPos - oldPos).length() > 0.001:
 			self.sprite.playAnim("walk", loop=True)
@@ -346,6 +353,7 @@ class Character(NetEnt):
 
 		speed = 10 if self.nameNode.node().getText()[:3]!='Zom' else 3
 		# handle movement
+		self.duck = duck
 		self.node.setX(self.node, deltaX * speed * deltaT)
 		self.node.setY(self.node, deltaY * speed * deltaT)
 		

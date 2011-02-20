@@ -157,7 +157,7 @@ class Connection(asyncore.dispatcher):
 
 	def handle_error(self):
 		self.log.write('#ERROR:'+str(sys.exc_info())+'/n')
-	#	print sys.exc_info()
+		#print sys.exc_info()
 
 	def handle_write(self):
 		if not self.writeQueue:
