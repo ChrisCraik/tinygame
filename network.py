@@ -138,7 +138,7 @@ class Connection(asyncore.dispatcher):
 		
 		packet = Packet.fromString(self.addrToClient[address], packetStr)
 		self.log.write('RECEIVED:'+json.dumps(packet.getState())+'\n')
-				
+		
 		if self.localUser == None:
 			#first message from server tells client which user it is
 			assert mode == MODE_CLIENT
@@ -150,7 +150,7 @@ class Connection(asyncore.dispatcher):
 			name = packet.data
 			print 'seeing client connect from', address, 'named',name
 			assert packet.opCode == CL_CONNECT_REQ
-			packet.sender.char.name = name
+			packet.sender.char.nameNode.node().setText(name)
 		else:
 			self.readQueue.append(packet)
 		self.addrToClient[address].last = packet.arriveTime

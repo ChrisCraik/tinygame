@@ -20,9 +20,19 @@ data = {
 		},
 	'Peaceful':True,
 	}
-
 from direct.showbase.DirectObject import DirectObject
 class Config(DirectObject):
+	mouseLookMode = True # signals other tasks using the mouse when it's needed for pointing
+	def visibilityChange(self, showingFlag):
+		Config.mouseLookMode = not showingFlag
+		props = WindowProperties()
+		if showingFlag:
+			self.configList.show()
+			props.setCursorHidden(False)
+		else:
+			self.configList.hide()
+			props.setCursorHidden(True)
+		base.win.requestProperties(props)
 	def startRemapKey(self, remapFunc, oldValue):
 		if 'REMAPINFO' not in self.funcMap:
 			print 'remapping', remapFunc, oldValue
@@ -104,8 +114,8 @@ class Config(DirectObject):
 		
 		# map special keys
 		self.accept('escape', sys.exit)
-		self.accept('f1', self.configList.show)
-		self.accept('f2', self.configList.hide)
+		self.accept('f1', self.visibilityChange, [True])
+		self.accept('f2', self.visibilityChange, [False])
 		
 		#funcmap and keymap hold controlInfo, translate generic key presses to functional key presses
 		self.buttonMap = {}

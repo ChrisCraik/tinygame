@@ -213,9 +213,8 @@ class Projectile(NetEnt):
 		self.sprite = Sprite2d('resources/missile.png', rows=3, cols=1, rowPerFace=(0,1,2,1), anchorY=Sprite2d.ALIGN_CENTER)
 		self.sprite.node.reparentTo(self.node)
 
-		# collision
+		# set up 'from' collisions - for detecting projectile hitting things
 		self.collisionHandler = CollisionHandlerQueue()
-		# set up 'from' collision - for detecting char hitting things
 		self.fromCollider = self.node.attachNewNode(CollisionNode('fromCollider'))
 		self.fromCollider.node().addSolid(CollisionRay(0,0,0,0,1,0))
 		self.fromCollider.node().setIntoCollideMask(BitMask32.allOff())

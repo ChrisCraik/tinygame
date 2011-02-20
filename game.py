@@ -52,14 +52,17 @@ class Controller(DirectObject):
 
 	#the parent of the camera - the character - is angled by the mouse
 	def controlCamera(self, task):
+		if not Config.mouseLookMode:
+			return task.cont
+
 		pointer = base.win.getPointer(0)
 		x,y = pointer.getX(), pointer.getY()
 
 		if base.win.movePointer(0,100,100):
 			self.h -= (x-100) * 0.2
 			self.p -= (y-100) * 0.2
-		if self.p < -30: self.p = -30
-		if self.p > 30: self.p = 30
+		if self.p < -90: self.p = -90
+		if self.p > 90: self.p = 90
 
 		#floater is node for pitch control
 		self.floater.setP(self.p)
