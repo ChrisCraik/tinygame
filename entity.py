@@ -10,6 +10,8 @@ SERVER_SAMPLES_SAVED = 20    # server saves this many of most recent input sampl
 CLIENT_RENDER_OFFSET = -0.05 # client's delay past (running average) arrival time to account for delay variation
 SERVER_INPUT_OFFSET = -0.05  # server's delay sampling user input, to allow it to arrive
 
+SHOW_COLLISIONS = False
+
 def addState(samples, newTimeStamp, newDict, samplesSaved):
 	if len(samples)==0 or newTimeStamp > samples[-1][0]:
 		samples.append((newTimeStamp,newDict))
@@ -63,7 +65,7 @@ class NetEnt(NetObj):
 			id = NetEnt.currentID
 			NetEnt.currentID += 1
 		self.id = id
-		print 'CREATING: Entities[',self.id,'] = ',self,'type=',self.__class__
+		#print 'CREATING: Entities[',self.id,'] = ',self,'type=',self.__class__
 		
 		assert self.id not in NetEnt.entities
 		NetEnt.entities[self.id] = self
@@ -172,7 +174,8 @@ class Projectile(NetEnt):
 		self.fromCollider.node().addSolid(CollisionRay(0,0,0,0,1,0))
 		self.fromCollider.node().setIntoCollideMask(BitMask32.allOff())
 		self.fromCollider.node().setFromCollideMask(BitMask32.bit(1))
-		#self.fromCollider.show()
+		if SHOW_COLLISIONS:
+			self.fromCollider.show()
 		Character.collisionTraverser.addCollider(self.fromCollider,self.collisionHandler)
 
 	def getState(self):
@@ -182,17 +185,18 @@ class Projectile(NetEnt):
 	def setState(self, weightOld, dataDictOld, weightNew, dataDictNew):
 		oldNode = None if not dataDictOld else dataDictOld.get(0,None)
 		self.node.setState(weightOld, oldNode, weightNew, dataDictNew[0])
-	def move(self, deltaT):
-		self.node.setY(self.node, 20*deltaT)
+	def movePostCollide(self, deltaT):
+		desiredDistance = 30*deltaT
+		self.collisionHandler.sortEntries()
+		if self.collisionHandler.getNumEntries() > 0:
+			#todo: evaluate to see if entry is collidable (e.g. same team)
+			collisionDist = (self.node.getPos() - self.collisionHandler.getEntry(0).getSurfacePoint(render)).length()
+			if collisionDist < desiredDistance and self.flyTime > 0.05:
+				print 'Explode!'
+				return False
+		self.node.setY(self.node, desiredDistance)
 		self.flyTime += deltaT
 		return self.flyTime < 4
-	def postCollide(self):
-		ch = self.collisionHandler
-		entries = [ch.getEntry(i) for i in range(ch.getNumEntries())]
-		entries.sort(lambda x,y: cmp(y.getSurfacePoint(render).getZ(),
-		                             x.getSurfacePoint(render).getZ()))
-		if len(entries) > 0:
-			zDelta = entries[0].getSurfacePoint(render)
 	def __del__(self):
 		#print 'PROJECTILE BEING REMOVED'
 		self.node.removeNode()
@@ -236,7 +240,8 @@ class Character(NetEnt):
 		self.fromCollider.node().addSolid(CollisionRay(0,0,2,0,0,-1))
 		self.fromCollider.node().setIntoCollideMask(BitMask32.allOff())
 		self.fromCollider.node().setFromCollideMask(BitMask32.bit(0))
-		#self.fromCollider.show()
+		if SHOW_COLLISIONS:
+			self.fromCollider.show()
 		Character.collisionTraverser.addCollider(self.fromCollider,self.collisionHandler)
 		
 		# set up 'into' collision - for detecting things hitting char
@@ -244,7 +249,8 @@ class Character(NetEnt):
 		self.intoCollider.node().addSolid(CollisionTube(0,0,1,0,0,0,0.5))
 		self.intoCollider.node().setIntoCollideMask(BitMask32.bit(1))
 		self.intoCollider.node().setFromCollideMask(BitMask32.allOff())
-		#self.intoCollider.show()
+		if SHOW_COLLISIONS:
+			self.intoCollider.show()
 
 		self.oldPosition = self.node.getPos()
 		self.collisionZ = self.node.getZ()

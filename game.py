@@ -109,7 +109,8 @@ class World(DirectObject):
 		
 		#set up collisions
 		Character.collisionTraverser = CollisionTraverser()
-		#Character.collisionTraverser.showCollisions(render)
+		if SHOW_COLLISIONS:
+			Character.collisionTraverser.showCollisions(render)
 		
 		#set up networking
 		mode = network.MODE_SERVER if args.server else network.MODE_CLIENT
@@ -141,7 +142,7 @@ class World(DirectObject):
 			#print 'saw client update, from time', packet.data[0]
 			packet.sender.addControlState(packet.data[0],packet.data[1])
 
-		# Simulate characters attempting to move
+		# Simulate characters, projectiles attempting to move
 		for control in ([self.control]+self.ai):
 			control.char.applyControl(globalClock.getDt(), control.getControl(), control==self.control)
 		timeStamp = time.clock()
@@ -151,15 +152,14 @@ class World(DirectObject):
 
 		Character.collisionTraverser.traverse(render)
 
-		# Simulate server-controlled objects using simulation time from last full pass
+		# handle collide case
 		for c in CharacterPool.values():
 			c.postCollide()
 		for p in ProjectilePool.values():
-			if not p.move(globalClock.getDt()):
+			if not p.movePostCollide(globalClock.getDt()):
 				ProjectilePool.remove(p)
 				del NetEnt.entities[p.id]
 				del p
-
 		# For each connected client, package up visible objects/world state and send to client
 		if updateDue:
 			entstate = NetEnt.getState()
