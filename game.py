@@ -58,9 +58,9 @@ class Controller(DirectObject):
 		pointer = base.win.getPointer(0)
 		x,y = pointer.getX(), pointer.getY()
 
-		if base.win.movePointer(0,100,100):
-			self.h -= (x-100) * 0.2
-			self.p -= (y-100) * 0.2
+		if base.win.movePointer(0,300,300):
+			self.h -= (x-300) * 0.1
+			self.p -= (y-300) * 0.1
 		if self.p < -90: self.p = -90
 		if self.p > 90: self.p = 90
 

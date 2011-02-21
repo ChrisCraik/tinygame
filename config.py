@@ -8,21 +8,29 @@ itemHeight = 1.2
 numItems = 7
 width = 8
 
-data = {
-	'Controls':{
-		'Jump':'space',
-		'Fore':'w',
-		'Left':'a',
-		'Right':'s',
-		'Back':'d',
-		'Shoot':'mouse1',
-		'Duck':'c',
-		},
-	'Peaceful':True,
-	}
+
 from direct.showbase.DirectObject import DirectObject
 class Config(DirectObject):
 	mouseLookMode = True # signals other tasks using the mouse when it's needed for pointing
+	data = {
+		'Controls':{
+			'Jump':'space',
+			'Fore':'w',
+			'Left':'a',
+			'Right':'s',
+			'Back':'d',
+			'Shoot':'mouse1',
+			'Duck':'c',
+			},
+		'Fullscreen':False,
+		}
+	def toggleFullscreen(self, status):
+		wp = WindowProperties() 
+		wp.setFullscreen(1 if status else 0)
+		wp.setSize(1024, 768) 
+		base.openMainWindow() 
+		base.win.requestProperties(wp) 
+		base.graphicsEngine.openWindows()
 	def visibilityChange(self, showingFlag):
 		Config.mouseLookMode = not showingFlag
 		props = WindowProperties()
@@ -76,7 +84,7 @@ class Config(DirectObject):
 			if isinstance(v, dict):
 				item = DirectFrame(text='----'+k+'----')
 			elif isinstance(v, bool):
-				item = DirectCheckButton(text=k+': '+str(v))
+				item = DirectCheckButton(text=k, command=self.toggleFullscreen)
 			elif isinstance(v, str):
 				item = DirectButton(text=k+': '+v, command=self.startRemapKey,extraArgs=[k,v])
 				self.buttonMap[k]=item
@@ -87,7 +95,7 @@ class Config(DirectObject):
 
 	def __init__(self):
 		self.controlDict = {}
-		for k in data['Controls'].keys():
+		for k in Config.data['Controls'].keys():
 			self.controlDict[k] = 0
 		self.configList = DirectScrolledList(
 			decButton_pos=(0,0,1.5),
@@ -119,11 +127,11 @@ class Config(DirectObject):
 		
 		#funcmap and keymap hold controlInfo, translate generic key presses to functional key presses
 		self.buttonMap = {}
-		self.funcMap = data['Controls']
+		self.funcMap = Config.data['Controls']
 		self.keyMap = {}
 		for k,v in self.funcMap.iteritems():
 			self.keyMap[v] = k
-		self.addConfigDict(self.configList, data)
+		self.addConfigDict(self.configList, Config.data)
 		
 		self.configList.hide()
 

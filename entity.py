@@ -200,12 +200,6 @@ class Effect(NetEnt):
 			char.node.setZ(char.node.getZ()+0.5)
 			print dir, char.xVelocity, char.yVelocity, char.vertVelocity
 		self.fromCollider.node().setFromCollideMask(BITMASK_EMPTY)
-		#Character.collisionTraverser.removeCollider(self.fromCollider)
-		#	#todo: evaluate to see if entry is collidable (e.g. same team)
-		#	collisionDist = (self.node.getPos() - self.collisionHandler.getEntry(0).getSurfacePoint(render)).length()
-		#	if collisionDist < desiredDistance and self.flyTime > 0.05:
-		#		print 'Hit em!'
-		#self.fromCollider.setScale(1+self.activeTime)
 		return self.activeTime < 0.5
 	def __del__(self):
 		#print 'explosion deleted'

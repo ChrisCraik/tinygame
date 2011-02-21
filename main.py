@@ -12,6 +12,10 @@ parse.add_argument('--name', default='Player')
 args = parse.parse_args()
 print 'results:', args
 
+from panda3d.core import loadPrcFileData
+
+loadPrcFileData('', 'read-raw-mice 1')
+loadPrcFileData('', 'show-frame-rate-meter 1')
 
 from game import World
 #from panda3d.core import PStatClient
