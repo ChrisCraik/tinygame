@@ -1,4 +1,3 @@
-
 from panda3d.core import PandaNode,NodePath,TextNode,Vec3
 from panda3d.core import CollisionRay, CollisionSphere, CollisionTube
 from panda3d.core import CollisionNode, CollisionHandlerQueue, BitMask32
@@ -208,12 +207,13 @@ NetEnt.registerSubclass(Effect)
 
 ProjectilePool = NetPool()
 class Projectile(NetEnt):
-	def __init__(self, parentNode=None, pitch=None, id=None):
+	def __init__(self, parent=None, pitch=None, id=None):
 		NetEnt.__init__(self, id)
 		self.node = NetNodePath(PandaNode('projectile'))
-		if parentNode:
-			self.node.setPos(parentNode.getPos() + (0,0,1))
-			self.node.setHpr(parentNode.getHpr())
+		if parent:
+			self.parent = parent
+			self.node.setPos(parent.node.getPos() + (0,0,1))
+			self.node.setHpr(parent.node.getHpr())
 			self.node.setP(pitch)
 		self.node.reparentTo(render)
 		ProjectilePool.add(self)
@@ -243,10 +243,13 @@ class Projectile(NetEnt):
 	def movePostCollide(self, deltaT):
 		desiredDistance = 30*deltaT
 		self.collisionHandler.sortEntries()
-		if self.collisionHandler.getNumEntries() > 0:
-			#todo: evaluate to see if entry is collidable (e.g. same team)
-			collisionDist = (self.node.getPos() - self.collisionHandler.getEntry(0).getSurfacePoint(render)).length()
-			if collisionDist < desiredDistance and self.flyTime > 0.05:
+		ch = self.collisionHandler
+		for e in [ch.getEntry(i) for i in range(ch.getNumEntries())]:
+			collisionDist = (self.node.getPos() - e.getSurfacePoint(render)).length()
+			if collisionDist > desiredDistance:
+				break
+			# only accept collisions that aren't with parent
+			if e.getIntoNode().getParent(0).getTag('ID') != str(self.parent.id):
 				return False
 		self.node.setY(self.node, desiredDistance)
 		self.flyTime += deltaT
@@ -382,7 +385,7 @@ class Character(NetEnt):
 		self.sinceShoot += deltaT
 		if shoot and self.sinceShoot > 0.5:
 			self.sinceShoot = 0
-			Projectile(self.node, pitch=p)
+			Projectile(self, pitch=p)
 
 	def attemptMove(self):
 		ch = self.collisionHandler
