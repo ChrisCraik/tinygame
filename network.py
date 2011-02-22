@@ -76,7 +76,7 @@ def sendReceive():
 	asyncore.loop(timeout=0, count=10)
 
 class Connection(asyncore.dispatcher):
-	def __init__(self, newmode, args, log):
+	def __init__(self, newmode, name, ip, port, log):
 		global mode
 		mode = newmode
 		
@@ -91,16 +91,15 @@ class Connection(asyncore.dispatcher):
 		self.create_socket(socket.AF_INET, socket.SOCK_DGRAM)
 		self.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 		if mode == MODE_SERVER:
-			self.bind(('',args.port))
-			print args.name
-			self.serverUser = User(name=args.name)
+			self.bind(('',port))
+			self.serverUser = User(name=name)
 			self.localUser = self.serverUser
 		else:
 			self.bind(('',0))
-			self.serverUser = User(address=(args.client,args.port))
+			self.serverUser = User(address=(ip,port))
 			self.localUser = None
-			self.addrToClient[(args.client,args.port)] = self.serverUser
-			self.login(args.name)
+			self.addrToClient[(ip,port)] = self.serverUser
+			self.login(name)
 
 	def login(self, name):
 		assert mode == MODE_CLIENT and len(self.addrToClient) == 1

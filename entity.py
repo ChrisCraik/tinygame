@@ -198,7 +198,7 @@ class Effect(NetEnt):
 			char.yVelocity = power*(dir.getY())
 			char.vertVelocity = max(power*(dir.getZ()),5)
 			char.node.setZ(char.node.getZ()+0.5)
-			print dir, char.xVelocity, char.yVelocity, char.vertVelocity
+			#print dir, char.xVelocity, char.yVelocity, char.vertVelocity
 		self.fromCollider.node().setFromCollideMask(BITMASK_EMPTY)
 		return self.activeTime < 0.5
 	def __del__(self):

@@ -7,7 +7,7 @@ from entity import *
 from config import Config
 
 # Panda3d
-import direct.directbase.DirectStart
+from direct.showbase.DirectObject import DirectObject
 from direct.task.Task import Task
 from panda3d.core import WindowProperties
 from panda3d.core import CollisionTraverser
@@ -16,7 +16,6 @@ from panda3d.core import PandaNode,NodePath,Camera,TextNode
 from panda3d.core import Vec2,Vec3,Vec4,BitMask32
 from direct.gui.OnscreenText import OnscreenText
 from direct.actor.Actor import Actor
-from direct.showbase.DirectObject import DirectObject
 import random, sys, os, math
 
 WAIT_TIME = 1
@@ -98,8 +97,7 @@ class AIController(DirectObject):
 		return [h,0,0,forward,jump,0,0]
 
 class World(DirectObject):
-	def __init__(self, args, log):
-		self.args = args
+	def __init__(self, isServer, name, ip, port, log):
 		self.log = log
 		self.config = Config()
 		
@@ -117,8 +115,8 @@ class World(DirectObject):
 			Character.collisionTraverser.showCollisions(render)
 		
 		#set up networking
-		mode = network.MODE_SERVER if args.server else network.MODE_CLIENT
-		self.connection = network.Connection(mode, args=self.args, log=self.log)
+		mode = network.MODE_SERVER if isServer else network.MODE_CLIENT
+		self.connection = network.Connection(mode, name, ip, port, log=self.log)
 		self.sendDeltaT = 0
 
 		#set up local client
