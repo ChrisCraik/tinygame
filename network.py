@@ -139,7 +139,6 @@ class Connection(asyncore.dispatcher):
 		self.log.write('RECEIVED:'+json.dumps(packet.getState())+'\n')
 		
 		if self.localUser == None:
-			#first message from server tells client which user it is
 			assert mode == MODE_CLIENT
 			self.localUser = packet.receiver
 

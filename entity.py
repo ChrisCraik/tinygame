@@ -7,6 +7,8 @@ from sprite import Sprite2d
 CLIENT_SAMPLES_SAVED = 20    # client saves this many of most recent samples from the server
 SERVER_SAMPLES_SAVED = 20    # server saves this many of most recent input samples per client
 
+CLIENT_PREDICT_SAMPLES = 20  # client history depth for speculative input prediction - used for correction
+
 CLIENT_RENDER_OFFSET = -0.05 # client's delay past (running average) arrival time to account for delay variation
 SERVER_INPUT_OFFSET = -0.05  # server's delay sampling user input, to allow it to arrive
 
@@ -16,6 +18,11 @@ BITMASK_EMPTY = BitMask32.allOff()
 BITMASK_TERRAIN = BitMask32.bit(0)
 BITMASK_CHARACTER = BitMask32.bit(1)
 
+def lerp3Tup(weightOld, tup3Old, weightNew, tup3New):
+	if tup3Old:
+		return tuple([tup3New[i]*weightNew + tup3Old[i]*weightOld for i in range(3)])
+	return tup3New
+
 def addState(samples, newTimeStamp, newDict, samplesSaved):
 	if len(samples)==0 or newTimeStamp > samples[-1][0]:
 		samples.append((newTimeStamp,newDict))
@@ -24,7 +31,6 @@ def addState(samples, newTimeStamp, newDict, samplesSaved):
 			if newTimeStamp > samples[i][0]:
 				samples.insert(i, (newTimeStamp,newDict))
 				break
-		#assert not 'unordered packets'
 	samples = samples[-samplesSaved:]
 
 def takeStateSample(samples, timeStamp):
@@ -34,6 +40,9 @@ def takeStateSample(samples, timeStamp):
 				break
 		
 		#print timeStamp, samples[i][0], samples[i-1][0]
+		
+		if i == 0:
+			return (0, None, 1, samples[i][1])
 		
 		#determine weights for linearly interpolated samples
 		timediff = samples[i][0] - samples[i-1][0]
@@ -59,9 +68,9 @@ class NetEnt(NetObj):
 		addState(NetEnt.samples, newTimeStamp, newDict, CLIENT_SAMPLES_SAVED)
 
 	@staticmethod
-	def takeGlobalStateSample(timeStamp):
+	def takeGlobalStateSample(timeStamp, skipList=[]):
 		w0,s0,w1,s1 = takeStateSample(NetEnt.samples, timeStamp + CLIENT_RENDER_OFFSET)
-		NetEnt.setState(w0,s0,w1,s1)
+		NetEnt.setState(w0,s0,w1,s1, skipList)
 
 	def __init__(self, id=None):
 		if not id:
@@ -86,19 +95,19 @@ class NetEnt(NetObj):
 		return d
 	@staticmethod
 	def setState(weightOld, stateDictOld,
-	             weightNew, stateDictNew):
+	             weightNew, stateDictNew, skipList):
 		if weightOld < 0:
 			print 'extrapolating!'
-		# first pass at state data: allocate any entities that don't exist
-		#    note: only allocate from newest stateDict
+		# first pass at state data: create any entities that don't exist
+		#    note: only create from newest stateDict
 		for id, entState in stateDictNew.iteritems():
 			if isinstance(entState, dict):
 				if id not in NetEnt.entities:
 					e = NetEnt.types[entState['type']](id=id)
 
-		# apply state in second pass to allow for entity assignment
+		# apply state in second pass (may depend on creation pass)
 		for id, entStateNew in stateDictNew.iteritems():
-			if isinstance(entStateNew, dict): #ignore pools
+			if isinstance(entStateNew, dict) and (id not in skipList): #ignore pools
 				entStateOld = stateDictOld.get(id, None) # interp if old available
 				NetEnt.entities[id].setState(weightOld, entStateOld,
 				                             weightNew, entStateNew)
@@ -147,7 +156,7 @@ class NetNodePath(NodePath):
 		
 		if dataOld:
 			oldPar,oldPos,oldh = dataOld
-			pos = [pos[i]*weightNew + oldPos[i]*weightOld for i in range(3)]
+			pos = lerp3Tup(weightOld, oldPos, weightNew, pos)
 			h = h*weightNew + oldh*weightOld
 		
 		#self.setParent(par) #todo: fix
@@ -308,7 +317,7 @@ class Character(NetEnt):
 		
 		# set up 'into' collision - for detecting things hitting char
 		self.intoCollider = self.node.attachNewNode(CollisionNode('intoCollider'))
-		self.intoCollider.node().addSolid(CollisionTube(0,0,1,0,0,0,0.5))
+		self.intoCollider.node().addSolid(CollisionTube(0,0,0.5,0,0,1,0.5))
 		self.intoCollider.node().setIntoCollideMask(BITMASK_CHARACTER)
 		self.intoCollider.node().setFromCollideMask(BITMASK_EMPTY)
 		if SHOW_COLLISIONS:
@@ -318,7 +327,10 @@ class Character(NetEnt):
 		self.collisionZ = self.node.getZ()
 		
 		# set up weapons
-		self.sinceShoot = 0
+		self.sinceShoot = 10
+		
+		# speculated client history - used for input prediction
+		self.posHistory = []
 		
 	def spawn(self):
 		#spawn randomly near startPosition, or another character
@@ -358,7 +370,7 @@ class Character(NetEnt):
 		else:
 			self.sprite.setFrame(0)
 
-	def applyControl(self, deltaT, controlData, isLocal):
+	def applyControl(self, deltaT, controlData, isLocal, timeStamp=None):
 		h, p, deltaX, deltaY, jump, duck, shoot = controlData
 		if not isLocal:
 			self.node.setH(h) # also setP(p) if you want char to pitch up and down
@@ -377,6 +389,11 @@ class Character(NetEnt):
 		self.node.setX(self.node.getX() + self.xVelocity*deltaT)
 		self.node.setY(self.node.getY() + self.yVelocity*deltaT)
 		
+		#timeStamp indicates localclient, don't do actual jumping/shooting client side (yet)
+		#todo: handle client animation
+		if timeStamp:
+			return
+
 		#handle jumping input
 		if jump and self.vertVelocity == None:
 			self.vertVelocity = 10
@@ -386,6 +403,30 @@ class Character(NetEnt):
 		if shoot and self.sinceShoot > 0.5:
 			self.sinceShoot = 0
 			Projectile(self, pitch=p)
+
+	def applyCorrection(self, currentTimeStamp):
+		# add char's state to the speculative history
+		addState(self.posHistory, currentTimeStamp, self.node.getPos(), CLIENT_PREDICT_SAMPLES)
+
+		# apply most recent server update of local player as correction
+		correctTime, lastUpdateValue = NetEnt.samples[-1]
+		correctPosition = lastUpdateValue[self.id][0][1] #0 is char's node, 1 is node's pos
+	
+		w0,s0,w1,s1 = takeStateSample(self.posHistory, correctTime)
+		specPosition = lerp3Tup(w0,s0,w1,s1)
+		
+		#print 'spec:', specPosition, ', correct:', correctPosition
+		error = Vec3(correctPosition) - Vec3(specPosition)
+		#print 'error is ',error
+		if 0.7 > error.length() > 0.1:
+			error.normalize()
+			error *= 0.1
+		for timepos in self.posHistory:
+			for i in range(3):
+				timepos[1][i] += error[i]
+		self.node.setPos(self.node.getPos()+error)
+		#animate the sprite
+		self.animate(self.node.getPos(),self.oldPosition)
 
 	def attemptMove(self):
 		ch = self.collisionHandler
@@ -433,18 +474,16 @@ NetEnt.registerSubclass(Character)
 
 UserPool = NetPool()
 class User(NetEnt):
-	def __init__(self, id=None, address=None, remoteAck=None, localAck=None, name='NONAME'):
+	def __init__(self, id=None, address=None, name='NONAME'):
 		NetEnt.__init__(self, id)
 		self.points = 0
 		if address:
 			self.address = address
-			self.remoteAck = remoteAck # most recent message they've acked
-			self.localAck = localAck   # most recent message from them I've acked
 		self.last = None
 		if not id:
 			# as client never create member NetEnt, it will be passed from server.
 			self.char = Character(name)
-			self.controlSamples = [(-1,[0,0,0,0,0,0,0]),(0,[0,0,0,0,0,0,0])]
+			self.controlSamples = [(0,[0,0,0,0,0,0,0])]
 		UserPool.add(self)
 	
 	def takeControlStateSample(self, timeStamp):

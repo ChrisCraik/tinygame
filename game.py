@@ -180,25 +180,34 @@ class World(DirectObject):
 
 	def stepClient(self, updateDue):
 		assert network.mode == network.MODE_CLIENT
-
+		timeStamp = network.getTime()
+		localControl = self.control.getControl()
+		
 		if updateDue:
 			# add client timestamp, client input sample to list, then send to server
-			#self.controlList = self.controlList[-CONTROL_REDUNDANCY:]+[(network.getTime(), self.control.getControl())]
-			controlData = (network.getTime(), self.control.getControl())
+			controlData = (timeStamp, localControl)
 			self.connection.writeQueue.append(network.Packet(self.connection.serverUser, network.CL_UPDATE, controlData)) #self.controlList))
 
 		network.sendReceive()
 
 		# Use packets to determine visible objects and their state
 		while self.connection.readQueue:
-			#print 'client received message from server'
 			packet = self.connection.readQueue.popleft()
 			assert packet.opCode == network.SV_UPDATE
 			assert packet.sender == self.connection.serverUser
 			NetEnt.addGlobalState(packet.sentTime, packet.data)
 		
-		NetEnt.takeGlobalStateSample(network.getTime())
-
+		localChar = self.connection.localUser.char
+		
+		# update all non-local characters
+		NetEnt.takeGlobalStateSample(network.getTime(), skipList=[localChar.id])
+		
+		# apply input to local char speculatively, #todo: consider collisions?
+		localChar.applyControl(globalClock.getDt(), localControl, True, timeStamp=timeStamp)
+		
+		localChar.applyCorrection(timeStamp)
+		
+		
 	def step(self, task):
 		# determine if an update packet is due
 		self.sendDeltaT += globalClock.getDt()
