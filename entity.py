@@ -16,7 +16,7 @@ SHOW_COLLISIONS = False
 
 BITMASK_EMPTY = BitMask32.allOff()
 BITMASK_TERRAIN = BitMask32.bit(0)
-BITMASK_CHARACTER = BitMask32.bit(1)
+BITMASK_CHARACTER = BitMask32.bit(31)
 
 def lerp3Tup(weightOld, tup3Old, weightNew, tup3New):
 	if tup3Old:
@@ -52,6 +52,9 @@ def takeStateSample(samples, timeStamp):
 		
 		return (weights[0], samples[i-1][1],
 		        weights[1], samples[i][1])
+
+def truncateStates(samples, timeStamp):
+	samples = [s for s in samples if s[0] < timeStamp]
 
 class NetObj:
 	def getState(self):
@@ -415,16 +418,24 @@ class Character(NetEnt):
 		w0,s0,w1,s1 = takeStateSample(self.posHistory, correctTime)
 		specPosition = lerp3Tup(w0,s0,w1,s1)
 		
-		#print 'spec:', specPosition, ', correct:', correctPosition
+		print 'spec:', specPosition, ', correct:', correctPosition
 		error = Vec3(correctPosition) - Vec3(specPosition)
-		#print 'error is ',error
-		if 0.7 > error.length() > 0.1:
-			error.normalize()
-			error *= 0.1
-		for timepos in self.posHistory:
-			for i in range(3):
-				timepos[1][i] += error[i]
-		self.node.setPos(self.node.getPos()+error)
+		print 'error is ',error,
+		if error.length() > 5:
+			#aggressive error handling: delete incorrect history
+			truncateStates(self.posHistory, correctTime)
+			self.node.setPos(correctPosition)
+			print 'super correct'
+		else:
+			#simple error handling
+			if error.length() > 0.1:
+				error.normalize()
+				error *= 0.1
+			for timepos in self.posHistory:
+				for i in range(3):
+					timepos[1][i] += error[i]
+			self.node.setPos(self.node.getPos()+error)
+			print
 		#animate the sprite
 		self.animate(self.node.getPos(),self.oldPosition)
 

@@ -106,7 +106,6 @@ class World(DirectObject):
 		self.environ = loader.loadModel('resources/models/world')
 		self.environ.reparentTo(render)
 		self.environ.setPos(0,0,0)
-		self.environ.setCollideMask(BITMASK_TERRAIN)
 		Character.startPosition = self.environ.find('**/start_point').getPos()
 		
 		#set up collisions
@@ -204,6 +203,9 @@ class World(DirectObject):
 		
 		# apply input to local char speculatively, #todo: consider collisions?
 		localChar.applyControl(globalClock.getDt(), localControl, True, timeStamp=timeStamp)
+		
+		Character.collisionTraverser.traverse(render)
+		localChar.postCollide()
 		
 		localChar.applyCorrection(timeStamp)
 		
